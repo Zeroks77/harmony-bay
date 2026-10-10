@@ -72,8 +72,6 @@
         .form-container input, .form-container select, .form-container textarea { background: #000; color: #00ff41; border: 1px solid #00ff41; padding: 8px; margin: 5px 0 15px 0; font-family: inherit; width: 100%; box-sizing: border-box; }
         .submit-btn { background: #00ff41; color: #111; border: none; padding: 10px 20px; font-family: inherit; font-weight: bold; cursor: pointer; text-transform: uppercase; }
         .delete-btn { position: absolute; top: 10px; right: 10px; background: none; color: red; border: 1px solid red; cursor: pointer; font-family: inherit; }
-        
-        /* NEU: Bearbeiten-Button für Akten */
         .edit-btn { position: absolute; top: 10px; right: 40px; background: none; color: #ff9800; border: 1px solid #ff9800; cursor: pointer; font-family: inherit; font-size: 0.9em; padding: 1px 6px;}
         .edit-btn:hover { background: #ff9800; color: #111; }
 
@@ -89,7 +87,9 @@
         .npc-card h3 { margin: 0 0 10px 0; border-bottom: 1px solid #00ff41; padding-bottom: 5px; }
         .status-badge { display: inline-block; padding: 2px 6px; margin-top: 10px; border: 1px solid #00ff41; font-weight: bold; font-size: 0.8em; text-transform: uppercase; }
         .polaroid { background: #eee; padding: 8px 8px 25px 8px; margin-bottom: 15px; box-shadow: 2px 2px 5px rgba(0,0,0,0.8); transform: rotate(-2deg); }
-        #npc-list .polaroid img { width: 100%; height: 180px; object-fit: cover; border: 1px solid #ccc; filter: grayscale(100%) contrast(1.2) sepia(20%); }
+        
+        /* NEU: cursor: zoom-in für Polaroid-Bilder hinzugefügt */
+        #npc-list .polaroid img { width: 100%; height: 180px; object-fit: cover; border: 1px solid #ccc; filter: grayscale(100%) contrast(1.2) sepia(20%); cursor: zoom-in; }
 
         /* Karte */
         #map-container { position: relative; display: inline-block; border: 2px solid #00ff41; box-shadow: 5px 5px 0px #00ff41; cursor: crosshair; z-index: 10;}
@@ -244,8 +244,6 @@
                         <label>Status:</label>
                         <select id="npc-status"><option>Unauffällig</option><option>Kooperativ</option><option>Verdächtig</option><option>Vermisst</option><option>Verstorben</option></select>
                         <label>Notizen:</label><textarea id="npc-notes"></textarea>
-                        
-                        <!-- Button ID für den Textwechsel beim Bearbeiten hinzugefügt -->
                         <button type="submit" id="npc-submit-btn" class="submit-btn">Akte speichern</button>
                         <button type="button" class="submit-btn" style="background:#555; color:#fff; display:none;" id="npc-cancel-btn" onclick="cancelEditPerson()">Abbrechen</button>
                     </form>
@@ -352,9 +350,8 @@
         function deleteNews(id) { let news = JSON.parse(localStorage.getItem('harmony_news')) || []; news = news.filter(n => n.id !== id); localStorage.setItem('harmony_news', JSON.stringify(news)); loadBackendNews(); }
         function renderPublicNews() { const board = document.getElementById('public-news-content'); let news = JSON.parse(localStorage.getItem('harmony_news')) || []; if (news.length === 0) { board.innerHTML = '<p style="text-align: center; color: #888; font-style: italic;">Derzeit keine offiziellen Ankündigungen.</p>'; return; } board.innerHTML = ''; news.forEach(article => { const item = document.createElement('div'); item.className = 'news-article'; const formattedText = article.text.replace(/\n/g, '<br>'); item.innerHTML = `<div class="news-date">${article.date}</div><div class="news-headline">${article.headline}</div><div class="news-content">${formattedText}</div>`; board.appendChild(item); }); }
 
-        // --- PERSONEN (Mit Bearbeitungs-Funktion) ---
-        let editingNpcId = null; // Speichert, ob wir gerade eine Akte bearbeiten
-
+        // --- PERSONEN (Mit Lightbox Update) ---
+        let editingNpcId = null;
         function savePerson(event) { 
             event.preventDefault(); 
             const name = document.getElementById('npc-name').value;
@@ -364,55 +361,39 @@
             const notes = document.getElementById('npc-notes').value;
             
             let persons = JSON.parse(localStorage.getItem('harmony_npcs')) || []; 
-            
             if (editingNpcId) {
-                // Wir überschreiben die bestehende Akte
                 let index = persons.findIndex(p => p.id === editingNpcId);
                 if(index !== -1) {
-                    persons[index].name = name;
-                    persons[index].role = role;
-                    persons[index].image = image;
-                    persons[index].status = status;
-                    persons[index].notes = notes;
+                    persons[index].name = name; persons[index].role = role; persons[index].image = image;
+                    persons[index].status = status; persons[index].notes = notes;
                 }
                 editingNpcId = null;
                 document.getElementById('npc-submit-btn').innerText = "Akte speichern";
                 document.getElementById('npc-cancel-btn').style.display = 'none';
             } else {
-                // Wir legen eine komplett neue Akte an
                 const newPerson = { id: Date.now(), name, role, image, status, notes }; 
                 persons.push(newPerson); 
             }
-            
             localStorage.setItem('harmony_npcs', JSON.stringify(persons)); 
-            document.getElementById('npc-form').reset(); 
-            loadPersons(); 
+            document.getElementById('npc-form').reset(); loadPersons(); 
         }
 
-        // Lade die Daten einer Person zurück ins Formular
         function editPerson(id) {
             let persons = JSON.parse(localStorage.getItem('harmony_npcs')) || [];
             let person = persons.find(p => p.id === id);
             if(person) {
-                document.getElementById('npc-name').value = person.name;
-                document.getElementById('npc-role').value = person.role;
-                document.getElementById('npc-image').value = person.image || '';
-                document.getElementById('npc-status').value = person.status;
+                document.getElementById('npc-name').value = person.name; document.getElementById('npc-role').value = person.role;
+                document.getElementById('npc-image').value = person.image || ''; document.getElementById('npc-status').value = person.status;
                 document.getElementById('npc-notes').value = person.notes;
-                
-                editingNpcId = id; // Wir merken uns, wen wir bearbeiten
+                editingNpcId = id; 
                 document.getElementById('npc-submit-btn').innerText = "Änderungen speichern";
                 document.getElementById('npc-cancel-btn').style.display = 'inline-block';
-                
-                // Scrollt die Ansicht weich wieder nach oben zum Formular
                 document.getElementById('tab-personen').scrollIntoView({behavior: 'smooth'});
             }
         }
 
-        // Bricht das Bearbeiten ab und macht das Formular wieder leer
         function cancelEditPerson() {
-            editingNpcId = null;
-            document.getElementById('npc-form').reset();
+            editingNpcId = null; document.getElementById('npc-form').reset();
             document.getElementById('npc-submit-btn').innerText = "Akte speichern";
             document.getElementById('npc-cancel-btn').style.display = 'none';
         }
@@ -422,7 +403,12 @@
             let persons = JSON.parse(localStorage.getItem('harmony_npcs')) || []; 
             persons.forEach(person => { 
                 const card = document.createElement('div'); card.className = 'npc-card'; 
-                let imageHTML = person.image && person.image.trim() !== '' ? `<div class="polaroid"><img src="${person.image}"></div>` : ''; 
+                
+                // NEU: HIER WURDE DIE LIGHTBOX-FUNKTION (onclick) EINGEBAUT!
+                let imageHTML = person.image && person.image.trim() !== '' 
+                    ? `<div class="polaroid"><img src="${person.image}" onclick="openLightbox('${person.image}')" title="Klicken zum Vergrößern"></div>` 
+                    : ''; 
+                
                 card.innerHTML = `
                     <button class="edit-btn" onclick="editPerson(${person.id})" title="Akte bearbeiten">✎</button>
                     <button class="delete-btn" onclick="deletePerson(${person.id})" title="Akte löschen">X</button>
@@ -435,9 +421,7 @@
         function deletePerson(id) { 
             if(confirm("Soll diese Akte wirklich unwiderruflich gelöscht werden?")) {
                 let persons = JSON.parse(localStorage.getItem('harmony_npcs')) || []; 
-                persons = persons.filter(person => person.id !== id); 
-                localStorage.setItem('harmony_npcs', JSON.stringify(persons)); 
-                loadPersons(); 
+                persons = persons.filter(person => person.id !== id); localStorage.setItem('harmony_npcs', JSON.stringify(persons)); loadPersons(); 
             }
         }
         
@@ -462,6 +446,8 @@
         function saveHandout(event) { event.preventDefault(); const newHandout = { id: Date.now(), title: document.getElementById('handout-title').value, image: document.getElementById('handout-image').value, text: document.getElementById('handout-text').value }; let handouts = JSON.parse(localStorage.getItem('harmony_handouts')) || []; handouts.push(newHandout); localStorage.setItem('harmony_handouts', JSON.stringify(handouts)); document.getElementById('handout-form').reset(); loadHandouts(); }
         function loadHandouts() { const list = document.getElementById('handout-list'); list.innerHTML = ''; let handouts = JSON.parse(localStorage.getItem('harmony_handouts')) || []; handouts.forEach(handout => { const card = document.createElement('div'); card.className = 'handout-card'; let imgHTML = ''; if(handout.image && handout.image.trim() !== '') { imgHTML = `<img src="${handout.image}" class="handout-img" onclick="openLightbox('${handout.image}')" title="Klicken zum Vergrößern">`; } card.innerHTML = `<button class="delete-btn" onclick="deleteHandout(${handout.id})">X</button><h3>${handout.title}</h3>${imgHTML}<div class="handout-text">${handout.text}</div>`; list.appendChild(card); }); }
         function deleteHandout(id) { let handouts = JSON.parse(localStorage.getItem('harmony_handouts')) || []; handouts = handouts.filter(h => h.id !== id); localStorage.setItem('harmony_handouts', JSON.stringify(handouts)); loadHandouts(); }
+        
+        // --- LIGHTBOX (Vollbild für Bilder) ---
         function openLightbox(imageUrl) { document.getElementById('lightbox-img').src = imageUrl; document.getElementById('lightbox').style.display = 'flex'; }
         function closeLightbox() { document.getElementById('lightbox').style.display = 'none'; }
     </script>
