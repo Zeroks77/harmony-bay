@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Willkommen in Harmony Bay</title>
+    <style>
+        /* =========================================
+           BASIS & TOURISTEN-ANSICHT
+           ========================================= */
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Georgia', serif; background-color: #fdfaf6; color: #333; overflow-x: hidden; }
+        
+        #tourist-view { display: flex; flex-direction: column; align-items: center; min-height: 100vh; text-align: center; background-image: radial-gradient(circle, #fff, #ebdcb9); transition: opacity 0.5s ease; padding: 40px 20px; box-sizing: border-box;}
+        
+        .postcard-title { font-size: 4.5rem; color: #2c5234; letter-spacing: 3px; margin-bottom: 5px; border-bottom: 2px solid #2c5234; padding-bottom: 10px; }
+        .postcard-slogan { font-size: 1.5rem; font-style: italic; color: #555; margin-bottom: 40px; }
+        
+        #public-news-board { width: 100%; max-width: 800px; background: #fff; padding: 30px; border: 1px solid #ccc; box-shadow: 0px 10px 20px rgba(0,0,0,0.1); text-align: left; margin-bottom: 60px; }
+        #public-news-board h2 { text-align: center; color: #2c5234; font-size: 2rem; border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-top: 0; }
+        .news-article { margin-bottom: 25px; padding-bottom: 15px; border-bottom: 1px dashed #eee; }
+        .news-date { font-size: 0.9em; color: #888; font-weight: bold; margin-bottom: 5px; text-transform: uppercase; }
+        .news-headline { font-size: 1.4em; color: #111; margin-bottom: 10px; }
+        .news-content { line-height: 1.6; color: #444; }
+
+        .footer-secret { margin-top: auto; padding-top: 20px; font-size: 0.9rem; color: #888; text-align: center; }
+        .trigger { cursor: pointer; transition: color 0.3s; }
+        .trigger:hover { color: #900; }
+
+        /* =========================================
+           NEU: DER SOMY WALKMAN (mit altem Design)
+           ========================================= */
+        #walkman-container {
+            position: fixed; bottom: 20px; right: 20px; background: #2a2a2a; border: 2px solid #111;
+            border-radius: 8px; padding: 15px; box-shadow: 3px 3px 15px rgba(0,0,0,0.8);
+            z-index: 5000; width: 180px; font-family: 'Courier New', Courier, monospace;
+        }
+        .walkman-logo { 
+            font-size: 0.9rem; font-weight: bold; letter-spacing: 5px; color: #aaa; text-align: left; margin-bottom: 10px;
+        }
+        .walkman-tape-window {
+            background-color: #7b8e73; /* Das Grün aus dem alten Design */
+            border: 2px solid #111;
+            padding: 5px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 0.8rem;
+            color: #111;
+            margin-bottom: 10px;
+            box-shadow: inset 1px 1px 3px rgba(0,0,0,0.5);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .walkman-controls button {
+            width: 100%;
+            background: #d85c18; /* Das Orange aus dem alten Design */
+            border: 2px solid #111;
+            color: #fff;
+            font-weight: bold;
+            font-family: inherit;
+            padding: 8px;
+            cursor: pointer;
+            box-shadow: 1px 1px 0px #fff, inset 1px 1px 2px rgba(255,255,255,0.3);
+            text-shadow: 1px 1px 1px rgba(0,0,0,0.8);
+        }
+        .walkman-controls button:active { 
+            box-shadow: inset 2px 2px 5px rgba(0,0,0,0.8);
+            transform: translateY(2px); 
+        }
+
+        /* =========================================
+           DOS PASSWORT TERMINAL
+           ========================================= */
+        #dos-terminal { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #050505; color: #00ff41; font-family: 'Courier New', Courier, monospace; padding: 40px; box-sizing: border-box; z-index: 2000; font-size: 1.2rem; }
+        #dos-terminal input { background: transparent; border: none; color: #00ff41; font-family: inherit; font-size: inherit; outline: none; text-transform: uppercase; width: 200px; }
+        .dos-error { color: #ff0000; display: none; margin-top: 10px; }
+        .blinking-cursor { animation: blink 1s step-end infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        /* =========================================
+           ERMITTLUNGS-ANSICHT (CRT Monitor)
+           ========================================= */
+        #investigation-view { display: none; background-color: #111; color: #00ff41; font-family: 'Courier New', Courier, monospace; height: 100vh; flex-direction: column; }
+        .scanlines { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); background-size: 100% 2px, 3px 100%; pointer-events: none; z-index: 100; }
+        
+        .nav-bar { background-color: #222; padding: 15px; border-bottom: 2px solid #00ff41; display: flex; gap: 20px; z-index: 10; position: relative; overflow-x: auto;}
+        .nav-btn { background: none; border: 1px solid #00ff41; color: #00ff41; padding: 10px 15px; font-family: inherit; cursor: pointer; text-transform: uppercase; white-space: nowrap;}
+        .nav-btn:hover, .nav-btn.active { background-color: #00ff41; color: #111; font-weight: bold; }
+        .logout-btn { margin-left: auto; color: red; border-color: red; }
+        .logout-btn:hover { background-color: red; color: white; }
+
+        .content-area { padding: 20px; flex-grow: 1; overflow-y: auto; position: relative; }
+        .tab-content { display: none; height: 100%; }
+        .tab-content.active-tab { display: block; }
+
+        /* Formulare & Listen */
+        .form-container { border: 1px dashed #00ff41; padding: 15px; margin-bottom: 30px; background: #0a0a0a; position: relative; z-index: 10;}
+        .form-container input, .form-container select, .form-container textarea { background: #000; color: #00ff41; border: 1px solid #00ff41; padding: 8px; margin: 5px 0 15px 0; font-family: inherit; width: 100%; box-sizing: border-box; }
+        .submit-btn { background: #00ff41; color: #111; border: none; padding: 10px 20px; font-family: inherit; font-weight: bold; cursor: pointer; text-transform: uppercase; }
+        .delete-btn { position: absolute; top: 10px; right: 10px; background: none; color: red; border: 1px solid red; cursor: pointer; font-family: inherit; }
+
+        /* Personen */
+        #npc-list { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; position: relative; z-index: 10;}
+        .npc-card { border: 1px solid #00ff41; background: #111; padding: 15px; width: 300px; box-shadow: 2px 2px 0px #00ff41; position: relative; z-index: 10; }
+        .npc-card h3 { margin: 0 0 10px 0; border-bottom: 1px solid #00ff41; padding-bottom: 5px; }
+        .status-badge { display: inline-block; padding: 2px 6px; margin-top: 10px; border: 1px solid #00ff41; font-weight: bold; font-size: 0.8em; text-transform: uppercase; }
+        .polaroid { background: #eee; padding: 8px 8px 25px 8px; margin-bottom: 15px; box-shadow: 2px 2px 5px rgba(0,0,0,0.8); transform: rotate(-2deg); }
+        #npc-list .polaroid img { width: 100%; height: 180px; object-fit: cover; border: 1px solid #ccc; filter: grayscale(100%) contrast(1.2) sepia(20%); }
+
+        /* Karte */
+        #map-container { position: relative; display: inline-block; border: 2px solid #00ff41; box-shadow: 5px 5px 0px #00ff41; cursor: crosshair; z-index: 10;}
+        #map-image { max-width: 100%; display: block; }
+        .map-pin { position: absolute; width: 12px; height: 12px; background-color: red; border-radius: 50%; border: 2px solid white; box-shadow: 0px 0px 5px black; transform: translate(-50%, -50%); cursor: pointer; z-index: 10; }
+        .map-pin:hover .pin-tooltip { display: block; }
+        .pin-tooltip { display: none; position: absolute; top: -40px; left: 20px; background: rgba(0, 0, 0, 0.9); color: #00ff41; border: 1px solid #00ff41; padding: 5px 10px; white-space: nowrap; font-size: 0.9em; z-index: 20; pointer-events: none; }
+
+        /* Pinnwand */
+        #board-container { width: 100%; min-height: 800px; background-color: #2a2015; background-image: url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.15'/%3E%3C/svg%3E"); position: relative; border: 5px solid #1a140d; box-shadow: inset 0 0 20px rgba(0,0,0,0.8); overflow: hidden; z-index: 5; }
+        .board-note { position: absolute; background: #f4f1ea; color: #111; padding: 10px; width: 120px; box-shadow: 3px 3px 10px rgba(0,0,0,0.5); cursor: grab; font-family: 'Courier New', Courier, monospace; font-size: 0.9em; text-align: center; border: 1px solid #ccc; background-image: radial-gradient(circle at 50% 5px, silver 3px, transparent 4px); user-select: none; z-index: 20; transition: outline 0.2s; }
+        .board-note img { width: 100%; height: 100px; object-fit: cover; margin-bottom: 5px; pointer-events: none; border: 1px solid #ddd; }
+        .board-note.selected-for-link { outline: 3px solid red; }
+        #strings-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15; }
+        .string-line { stroke: #cc0000; stroke-width: 3; stroke-dasharray: 5,5; filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.8)); }
+        .string-label { position: absolute; background: #fff9c4; color: #111; padding: 3px 6px; border: 1px solid #999; box-shadow: 2px 2px 5px rgba(0,0,0,0.5); font-family: 'Courier New', Courier, monospace; font-size: 0.8em; transform: translate(-50%, -50%); z-index: 18; cursor: pointer; user-select: none; transition: background 0.2s; }
+        .string-label:hover { background: #ffcdd2; color: #900; } 
+        .board-toolbar { margin-bottom: 10px; position: relative; z-index: 10; }
+
+        /* Handouts */
+        #handout-list, #news-backend-list { display: flex; flex-direction: column; gap: 20px; position: relative; z-index: 10; }
+        .handout-card { background: #e9e5d3; color: #222; padding: 25px; border: 1px solid #c2b59b; box-shadow: 3px 3px 10px rgba(0,0,0,0.6); font-family: 'Courier New', Courier, monospace; position: relative; max-width: 800px; }
+        .handout-card h3 { margin-top: 0; border-bottom: 2px solid #555; padding-bottom: 5px; text-transform: uppercase;}
+        .handout-img { max-width: 300px; max-height: 250px; cursor: zoom-in; border: 4px solid #fff; box-shadow: 2px 2px 8px rgba(0,0,0,0.7); margin-bottom: 15px; display: block; transition: opacity 0.2s; }
+        .handout-img:hover { opacity: 0.8; }
+        .handout-text { white-space: pre-wrap; font-size: 1.05rem; line-height: 1.5; }
+        .backend-news-item { border: 1px solid #00ff41; padding: 15px; margin-bottom: 10px; position: relative; }
+
+        #lightbox { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 1000; justify-content: center; align-items: center; }
+        #lightbox img { max-width: 90vw; max-height: 90vh; border: 2px solid #fff; box-shadow: 0 0 30px rgba(0, 255, 65, 0.4); cursor: zoom-out; }
+        .close-lightbox { position: absolute; top: 20px; right: 40px; color: #fff; font-size: 50px; cursor: pointer; user-select: none; }
+
+        /* Glitch Animation */
+        .glitch-effect { animation: glitch-skew 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) both infinite; background-color: red !important; }
+        @keyframes glitch-skew { 0% { transform: skew(0deg); } 20% { transform: skew(-20deg); filter: invert(1); } 40% { transform: skew(20deg); filter: invert(0); } 60% { transform: skew(-10deg); filter: invert(1); } 80% { transform: skew(10deg); filter: invert(0); } 100% { transform: skew(0deg); } }
+    </style>
+</head>
+<body>
+
+    <!-- DER WALKMAN (Auf allen Seiten sichtbar) -->
+    <div id="walkman-container">
+        <div class="walkman-logo">SOMY</div>
+        <div class="walkman-tape-window">MIXTAPE '83</div>
+        <div class="walkman-controls">
+            <button onclick="toggleAudio()" id="audio-btn">▶ PLAY</button>
+        </div>
+        <!-- Die unsichtbare Audio-Quelle -->
+        <audio id="bg-audio" loop>
+            <source src="intro.mp3" type="audio/mpeg">
+        </audio>
+    </div>
+
+    <!-- ANSICHT 1: Touristen-Fassade -->
+    <div id="tourist-view">
+        <h1 class="postcard-title">Harmony Bay</h1>
+        <p class="postcard-slogan">"Frische Luft. Freundliche Menschen. Unvergessliche Sonnenuntergänge."</p>
+        
+        <div id="public-news-board">
+            <h2>Bekanntmachungen & Aktuelles</h2>
+            <div id="public-news-content"><p style="text-align: center; color: #888; font-style: italic;">Lade Neuigkeiten aus dem Rathaus...</p></div>
+        </div>
+        <div class="footer-secret">Copyright &copy; <span class="trigger" onclick="startDosTerminal()">1983</span> Harmony Bay Tourism Board</div>
+    </div>
+
+    <!-- DOS LOGIN TERMINAL -->
+    <div id="dos-terminal">
+        <div class="scanlines"></div>
+        <p>> SYSTEM BOOT SEQUENCE INITIATED...</p>
+        <p>> CONNECTING TO SECURE MAINFRAME...</p>
+        <p>> CONNECTION ESTABLISHED.</p>
+        <br>
+        <p>> AUTHORIZATION REQUIRED.</p>
+        <p>> ENTER PASSWORD: <input type="password" id="dos-input" autocomplete="off"><span class="blinking-cursor">_</span></p>
+        <p class="dos-error" id="dos-error">> ZUGRIFF VERWEIGERT. FEHLERHAFTER CODE.</p>
+    </div>
+
+    <!-- ANSICHT 2: Ermittlungs-Backend -->
+    <div id="investigation-view">
+        <div class="scanlines"></div>
+        <div class="nav-bar">
+            <button class="nav-btn active" onclick="switchTab('tab-news', this)">News</button>
+            <button class="nav-btn" onclick="switchTab('tab-personen', this)">Personen</button>
+            <button class="nav-btn" onclick="switchTab('tab-karte', this)">Lageplan</button>
+            <button class="nav-btn" onclick="switchTab('tab-pinnwand', this)">Pinnwand</button>
+            <button class="nav-btn" onclick="switchTab('tab-archiv', this)">Archiv</button>
+            <button class="nav-btn" onclick="switchTab('tab-system', this)">System</button>
+            <button class="nav-btn logout-btn" onclick="systemLogout()">[ SYSTEM VERLASSEN ]</button>
+        </div>
+        
+        <div class="content-area">
+            
+            <!-- REITER 0: NEWS -->
+            <div id="tab-news" class="tab-content active-tab">
+                <h2>// SYSTEM: TOURISTEN-SEITE MANIPULIEREN</h2>
+                <div class="form-container">
+                    <form id="news-form" onsubmit="saveNews(event)">
+                        <label>Datum:</label><input type="text" id="news-date" required>
+                        <label>Schlagzeile:</label><input type="text" id="news-headline" required>
+                        <label>Text:</label><textarea id="news-text" style="height: 120px;" required></textarea>
+                        <button type="submit" class="submit-btn">Öffentlich posten</button>
+                    </form>
+                </div>
+                <h3>Zuletzt veröffentlicht:</h3>
+                <div id="news-backend-list"></div>
+            </div>
+
+            <!-- REITER 1: PERSONEN -->
+            <div id="tab-personen" class="tab-content">
+                <h2>// DATENBANK: BÜRGER & VERDÄCHTIGE</h2>
+                <div class="form-container">
+                    <form id="npc-form" onsubmit="savePerson(event)">
+                        <label>Name der Person:</label><input type="text" id="npc-name" required>
+                        <label>Beruf / Funktion:</label><input type="text" id="npc-role" required>
+                        <label>Bild (Dateiname oder URL):</label><input type="text" id="npc-image">
+                        <label>Status:</label>
+                        <select id="npc-status"><option>Unauffällig</option><option>Kooperativ</option><option>Verdächtig</option><option>Vermisst</option><option>Verstorben</option></select>
+                        <label>Notizen:</label><textarea id="npc-notes"></textarea>
+                        <button type="submit" class="submit-btn">Akte speichern</button>
+                    </form>
+                </div>
+                <div id="npc-list"></div>
+            </div>
+
+            <!-- REITER 2: KARTE -->
+            <div id="tab-karte" class="tab-content">
+                <h2>// LAGEPLAN HARMONY BAY</h2>
+                <div id="map-container" onclick="addPin(event)">
+                    <img id="map-image" src="55349.png" alt="Karte">
+                </div>
+            </div>
+
+            <!-- REITER 3: PINNWAND -->
+            <div id="tab-pinnwand" class="tab-content">
+                <div class="board-toolbar">
+                    <h2>// VERKNÜPFUNGSANALYSE</h2>
+                    <button class="submit-btn" style="padding: 5px 10px; font-size: 0.8em;" onclick="clearStrings()">Alle Fäden löschen</button>
+                </div>
+                <div id="board-container"><svg id="strings-svg"></svg><div id="string-labels-container"></div></div>
+            </div>
+
+            <!-- REITER 4: ARCHIV -->
+            <div id="tab-archiv" class="tab-content">
+                <h2>// BEWEISMITTEL</h2>
+                <div class="form-container">
+                    <form id="handout-form" onsubmit="saveHandout(event)">
+                        <label>Titel:</label><input type="text" id="handout-title" required>
+                        <label>Foto (optional):</label><input type="text" id="handout-image">
+                        <label>Text:</label><textarea id="handout-text" style="height: 120px;"></textarea>
+                        <button type="submit" class="submit-btn">Ablegen</button>
+                    </form>
+                </div>
+                <div id="handout-list"></div>
+            </div>
+
+            <!-- REITER 5: SYSTEM-WARTUNG (BACKUP) -->
+            <div id="tab-system" class="tab-content">
+                <h2>// SYSTEM-WARTUNG & DATENSICHERUNG</h2>
+                <div class="form-container">
+                    <h3>1. Daten exportieren</h3>
+                    <button class="submit-btn" onclick="exportBackup()">Backup herunterladen</button>
+                </div>
+                <div class="form-container">
+                    <h3>2. Daten importieren</h3>
+                    <input type="file" id="backup-file" accept=".json" style="color: #00ff41; padding: 10px; border: 1px solid #00ff41; background: #111; margin-bottom: 15px;"><br>
+                    <button class="submit-btn" style="background-color: #ff9800; color: #111;" onclick="importBackup()">Backup in System laden</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- LIGHTBOX -->
+    <div id="lightbox" onclick="closeLightbox()"><span class="close-lightbox">&times;</span><img id="lightbox-img" src="" onclick="event.stopPropagation(); closeLightbox();"></div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() { renderPublicNews(); });
+
+        // --- WALKMAN AUDIO ---
+        function toggleAudio() {
+            const audio = document.getElementById('bg-audio');
+            const btn = document.getElementById('audio-btn');
+            if (audio.paused) {
+                audio.play();
+                btn.innerText = '⏸ STOP';
+            } else {
+                audio.pause();
+                btn.innerText = '▶ PLAY';
+            }
+        }
+
+        // --- DOS TERMINAL & LOGIN ---
+        function startDosTerminal() { document.getElementById('tourist-view').style.display = 'none'; document.getElementById('dos-terminal').style.display = 'block'; document.getElementById('dos-input').focus(); }
+        document.getElementById('dos-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                const pass = this.value.toUpperCase().trim();
+                if (pass === 'MONSTER') {
+                    document.getElementById('dos-terminal').style.display = 'none'; this.value = ''; document.getElementById('dos-error').style.display = 'none';
+                    const inv = document.getElementById('investigation-view'); inv.style.display = 'flex'; inv.classList.add('glitch-effect');
+                    setTimeout(() => { inv.classList.remove('glitch-effect'); loadBackendNews(); loadPersons(); loadPins(); loadHandouts(); }, 800);
+                } else { document.getElementById('dos-error').style.display = 'block'; this.value = ''; }
+            }
+        });
+
+        function systemLogout() { document.getElementById('investigation-view').style.display = 'none'; renderPublicNews(); document.getElementById('tourist-view').style.display = 'flex'; }
+        function switchTab(tabId, clickedButton) { const contents = document.querySelectorAll('.tab-content'); contents.forEach(content => content.classList.remove('active-tab')); const buttons = document.querySelectorAll('.nav-btn'); buttons.forEach(btn => btn.classList.remove('active')); document.getElementById(tabId).classList.add('active-tab'); clickedButton.classList.add('active'); if(tabId === 'tab-pinnwand') { loadBoard(); } }
+
+        // --- BACKUP SYSTEM ---
+        function exportBackup() { const data = { news: localStorage.getItem('harmony_news'), npcs: localStorage.getItem('harmony_npcs'), pins: localStorage.getItem('harmony_map_pins'), positions: localStorage.getItem('harmony_board_positions'), links: localStorage.getItem('harmony_board_links'), handouts: localStorage.getItem('harmony_handouts') }; const blob = new Blob([JSON.stringify(data)], {type: 'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'harmony_bay_akte_1983.json'; a.click(); URL.revokeObjectURL(url); }
+        function importBackup() { const fileInput = document.getElementById('backup-file'); if (fileInput.files.length === 0) { alert("Bitte wähle zuerst eine Backup-Datei aus!"); return; } if(confirm("Sicher? Dies überschreibt aktuelle ungespeicherte Daten!")) { const file = fileInput.files[0]; const reader = new FileReader(); reader.onload = function(e) { try { const data = JSON.parse(e.target.result); if(data.news) localStorage.setItem('harmony_news', data.news); if(data.npcs) localStorage.setItem('harmony_npcs', data.npcs); if(data.pins) localStorage.setItem('harmony_map_pins', data.pins); if(data.positions) localStorage.setItem('harmony_board_positions', data.positions); if(data.links) localStorage.setItem('harmony_board_links', data.links); if(data.handouts) localStorage.setItem('harmony_handouts', data.handouts); alert("System-Restore erfolgreich!"); location.reload(); } catch(err) { alert("Fehler beim Lesen!"); } }; reader.readAsText(file); } }
+
+        // --- NEWS ---
+        function saveNews(event) { event.preventDefault(); const newArticle = { id: Date.now(), date: document.getElementById('news-date').value, headline: document.getElementById('news-headline').value, text: document.getElementById('news-text').value }; let news = JSON.parse(localStorage.getItem('harmony_news')) || []; news.unshift(newArticle); localStorage.setItem('harmony_news', JSON.stringify(news)); document.getElementById('news-form').reset(); loadBackendNews(); }
+        function loadBackendNews() { const list = document.getElementById('news-backend-list'); list.innerHTML = ''; let news = JSON.parse(localStorage.getItem('harmony_news')) || []; news.forEach(article => { const item = document.createElement('div'); item.className = 'backend-news-item'; item.innerHTML = `<button class="delete-btn" style="top: 5px; right: 5px;" onclick="deleteNews(${article.id})">Löschen</button><strong>${article.date} | ${article.headline}</strong>`; list.appendChild(item); }); }
+        function deleteNews(id) { let news = JSON.parse(localStorage.getItem('harmony_news')) || []; news = news.filter(n => n.id !== id); localStorage.setItem('harmony_news', JSON.stringify(news)); loadBackendNews(); }
+        function renderPublicNews() { const board = document.getElementById('public-news-content'); let news = JSON.parse(localStorage.getItem('harmony_news')) || []; if (news.length === 0) { board.innerHTML = '<p style="text-align: center; color: #888; font-style: italic;">Derzeit keine offiziellen Ankündigungen.</p>'; return; } board.innerHTML = ''; news.forEach(article => { const item = document.createElement('div'); item.className = 'news-article'; const formattedText = article.text.replace(/\n/g, '<br>'); item.innerHTML = `<div class="news-date">${article.date}</div><div class="news-headline">${article.headline}</div><div class="news-content">${formattedText}</div>`; board.appendChild(item); }); }
+
+        // --- PERSONEN ---
+        function savePerson(event) { event.preventDefault(); const newPerson = { id: Date.now(), name: document.getElementById('npc-name').value, role: document.getElementById('npc-role').value, image: document.getElementById('npc-image').value, status: document.getElementById('npc-status').value, notes: document.getElementById('npc-notes').value }; let persons = JSON.parse(localStorage.getItem('harmony_npcs')) || []; persons.push(newPerson); localStorage.setItem('harmony_npcs', JSON.stringify(persons)); document.getElementById('npc-form').reset(); loadPersons(); }
+        function loadPersons() { const list = document.getElementById('npc-list'); list.innerHTML = ''; let persons = JSON.parse(localStorage.getItem('harmony_npcs')) || []; persons.forEach(person => { const card = document.createElement('div'); card.className = 'npc-card'; let imageHTML = person.image && person.image.trim() !== '' ? `<div class="polaroid"><img src="${person.image}"></div>` : ''; card.innerHTML = `<button class="delete-btn" onclick="deletePerson(${person.id})">X</button>${imageHTML}<h3>${person.name}</h3><p><strong>Beruf:</strong> ${person.role}</p><p><strong>Akte:</strong> ${person.notes}</p><span class="status-badge">${person.status}</span>`; list.appendChild(card); }); }
+        function deletePerson(id) { let persons = JSON.parse(localStorage.getItem('harmony_npcs')) || []; persons = persons.filter(person => person.id !== id); localStorage.setItem('harmony_npcs', JSON.stringify(persons)); loadPersons(); }
+        
+        // --- KARTE ---
+        function addPin(event) { if (event.target.classList.contains('map-pin')) return; const mapContainer = document.getElementById('map-container'); const rect = mapContainer.getBoundingClientRect(); const note = prompt("Information anpinnen:"); if (note && note.trim() !== "") { const newPin = { id: Date.now(), x: ((event.clientX - rect.left) / rect.width) * 100, y: ((event.clientY - rect.top) / rect.height) * 100, note: note }; let pins = JSON.parse(localStorage.getItem('harmony_map_pins')) || []; pins.push(newPin); localStorage.setItem('harmony_map_pins', JSON.stringify(pins)); renderPin(newPin); } }
+        function loadPins() { document.querySelectorAll('.map-pin').forEach(pin => pin.remove()); let pins = JSON.parse(localStorage.getItem('harmony_map_pins')) || []; pins.forEach(pin => renderPin(pin)); }
+        function renderPin(pinData) { const pinElement = document.createElement('div'); pinElement.className = 'map-pin'; pinElement.style.left = pinData.x + '%'; pinElement.style.top = pinData.y + '%'; pinElement.oncontextmenu = function(e) { e.preventDefault(); if(confirm("Pin löschen?")) { deleteMapPin(pinData.id); } }; const tooltip = document.createElement('div'); tooltip.className = 'pin-tooltip'; tooltip.innerText = pinData.note; pinElement.appendChild(tooltip); document.getElementById('map-container').appendChild(pinElement); }
+        function deleteMapPin(id) { let pins = JSON.parse(localStorage.getItem('harmony_map_pins')) || []; pins = pins.filter(pin => pin.id !== id); localStorage.setItem('harmony_map_pins', JSON.stringify(pins)); loadPins(); }
+
+        // --- PINNWAND ---
+        let selectedNodeId = null; let isDragging = false; let currentDragElement = null; let dragOffsetX = 0; let dragOffsetY = 0;
+        function loadBoard() { const container = document.getElementById('board-container'); document.querySelectorAll('.board-note').forEach(note => note.remove()); let persons = JSON.parse(localStorage.getItem('harmony_npcs')) || []; let positions = JSON.parse(localStorage.getItem('harmony_board_positions')) || {}; let defaultX = 20; let defaultY = 20; persons.forEach(person => { const note = document.createElement('div'); note.className = 'board-note'; note.id = 'note-' + person.id; let x = positions[person.id] ? positions[person.id].x : defaultX; let y = positions[person.id] ? positions[person.id].y : defaultY; if(!positions[person.id]){ defaultX += 130; if(defaultX > 600) { defaultX = 20; defaultY += 150; } } note.style.left = x + 'px'; note.style.top = y + 'px'; let imageHTML = person.image && person.image.trim() !== '' ? `<img src="${person.image}">` : ''; note.innerHTML = `${imageHTML}<strong>${person.name}</strong>`; note.onmousedown = startDrag; note.oncontextmenu = function(e) { e.preventDefault(); handleLinkSelection(person.id, note); }; container.appendChild(note); }); drawAllStrings(); }
+        function startDrag(e) { if(e.button === 2) return; isDragging = true; currentDragElement = this; const rect = currentDragElement.getBoundingClientRect(); dragOffsetX = e.clientX - rect.left; dragOffsetY = e.clientY - rect.top; currentDragElement.style.zIndex = 30; document.addEventListener('mousemove', drag); document.addEventListener('mouseup', endDrag); }
+        function drag(e) { if (!isDragging) return; const container = document.getElementById('board-container').getBoundingClientRect(); let newX = e.clientX - container.left - dragOffsetX; let newY = e.clientY - container.top - dragOffsetY; newX = Math.max(0, Math.min(newX, container.width - 120)); newY = Math.max(0, Math.min(newY, container.height - 50)); currentDragElement.style.left = newX + 'px'; currentDragElement.style.top = newY + 'px'; drawAllStrings(); }
+        function endDrag() { if (!isDragging) return; isDragging = false; currentDragElement.style.zIndex = 20; let positions = JSON.parse(localStorage.getItem('harmony_board_positions')) || {}; const npcId = currentDragElement.id.replace('note-', ''); positions[npcId] = { x: parseInt(currentDragElement.style.left), y: parseInt(currentDragElement.style.top) }; localStorage.setItem('harmony_board_positions', JSON.stringify(positions)); currentDragElement = null; document.removeEventListener('mousemove', drag); document.removeEventListener('mouseup', endDrag); }
+        function handleLinkSelection(id, element) { if (selectedNodeId === null) { selectedNodeId = id; element.classList.add('selected-for-link'); } else if (selectedNodeId === id) { selectedNodeId = null; element.classList.remove('selected-for-link'); } else { let links = JSON.parse(localStorage.getItem('harmony_board_links')) || []; const exists = links.some(link => (link.start === selectedNodeId && link.end === id) || (link.start === id && link.end === selectedNodeId)); if (!exists) { const labelInput = prompt("Verbindung? (z.B. 'Feinde' oder leer lassen)"); links.push({ start: selectedNodeId, end: id, label: labelInput }); localStorage.setItem('harmony_board_links', JSON.stringify(links)); } document.getElementById('note-' + selectedNodeId).classList.remove('selected-for-link'); selectedNodeId = null; drawAllStrings(); } }
+        function drawAllStrings() { const svg = document.getElementById('strings-svg'); const labelsContainer = document.getElementById('string-labels-container'); svg.innerHTML = ''; labelsContainer.innerHTML = ''; let links = JSON.parse(localStorage.getItem('harmony_board_links')) || []; links.forEach(link => { const startEl = document.getElementById('note-' + link.start); const endEl = document.getElementById('note-' + link.end); if(startEl && endEl) { const x1 = parseInt(startEl.style.left) + (startEl.offsetWidth / 2); const y1 = parseInt(startEl.style.top) + (startEl.offsetHeight / 2); const x2 = parseInt(endEl.style.left) + (endEl.offsetWidth / 2); const y2 = parseInt(endEl.style.top) + (endEl.offsetHeight / 2); const line = document.createElementNS('http://www.w3.org/2000/svg', 'line'); line.setAttribute('x1', x1); line.setAttribute('y1', y1); line.setAttribute('x2', x2); line.setAttribute('y2', y2); line.setAttribute('class', 'string-line'); svg.appendChild(line); const midX = (x1 + x2) / 2; const midY = (y1 + y2) / 2; const labelDiv = document.createElement('div'); labelDiv.className = 'string-label'; labelDiv.style.left = midX + 'px'; labelDiv.style.top = midY + 'px'; labelDiv.innerText = (link.label && link.label.trim() !== "") ? link.label : "🔗"; labelDiv.title = "Rechtsklick, um diese Verbindung zu löschen"; labelDiv.oncontextmenu = function(e) { e.preventDefault(); if(confirm("Verbindung löschen?")) { deleteSingleString(link.start, link.end); } }; labelsContainer.appendChild(labelDiv); } }); }
+        function deleteSingleString(startId, endId) { let links = JSON.parse(localStorage.getItem('harmony_board_links')) || []; links = links.filter(link => !((link.start === startId && link.end === endId) || (link.start === endId && link.end === startId))); localStorage.setItem('harmony_board_links', JSON.stringify(links)); drawAllStrings(); }
+        function clearStrings() { if(confirm("Alle roten Fäden löschen?")) { localStorage.removeItem('harmony_board_links'); drawAllStrings(); } }
+
+        // --- HANDOUTS ---
+        function saveHandout(event) { event.preventDefault(); const newHandout = { id: Date.now(), title: document.getElementById('handout-title').value, image: document.getElementById('handout-image').value, text: document.getElementById('handout-text').value }; let handouts = JSON.parse(localStorage.getItem('harmony_handouts')) || []; handouts.push(newHandout); localStorage.setItem('harmony_handouts', JSON.stringify(handouts)); document.getElementById('handout-form').reset(); loadHandouts(); }
+        function loadHandouts() { const list = document.getElementById('handout-list'); list.innerHTML = ''; let handouts = JSON.parse(localStorage.getItem('harmony_handouts')) || []; handouts.forEach(handout => { const card = document.createElement('div'); card.className = 'handout-card'; let imgHTML = ''; if(handout.image && handout.image.trim() !== '') { imgHTML = `<img src="${handout.image}" class="handout-img" onclick="openLightbox('${handout.image}')" title="Klicken zum Vergrößern">`; } card.innerHTML = `<button class="delete-btn" onclick="deleteHandout(${handout.id})">X</button><h3>${handout.title}</h3>${imgHTML}<div class="handout-text">${handout.text}</div>`; list.appendChild(card); }); }
+        function deleteHandout(id) { let handouts = JSON.parse(localStorage.getItem('harmony_handouts')) || []; handouts = handouts.filter(h => h.id !== id); localStorage.setItem('harmony_handouts', JSON.stringify(handouts)); loadHandouts(); }
+        function openLightbox(imageUrl) { document.getElementById('lightbox-img').src = imageUrl; document.getElementById('lightbox').style.display = 'flex'; }
+        function closeLightbox() { document.getElementById('lightbox').style.display = 'none'; }
+    </script>
+</body>
+</html>
