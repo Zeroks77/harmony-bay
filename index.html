@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Willkommen in Harmony Bay</title>
     
-    <!-- NEU: FIREBASE CLOUD ANBINDUNG -->
+    <!-- FIREBASE CLOUD ANBINDUNG -->
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
@@ -278,12 +278,21 @@
                 <div id="handout-list"></div>
             </div>
 
+            <!-- NEU: IMPORT-FUNKTION IST WIEDER DA -->
             <div id="tab-system" class="tab-content">
                 <h2>// SYSTEM-WARTUNG (CLOUD BACKUP)</h2>
+                
                 <div class="form-container">
-                    <h3>Manuelles Cloud-Backup herunterladen</h3>
-                    <p style="color: #888;">Deine Daten liegen jetzt sicher in der Firebase-Cloud und werden automatisch synchronisiert. Falls du trotzdem eine Offline-Sicherung als Datei haben möchtest, klicke hier:</p>
+                    <h3>1. Manuelles Cloud-Backup herunterladen</h3>
+                    <p style="color: #888;">Deine Daten liegen sicher in der Cloud. Falls du trotzdem eine Offline-Sicherung als Datei haben möchtest, klicke hier:</p>
                     <button class="submit-btn" onclick="exportBackup()">Als JSON sichern</button>
+                </div>
+                
+                <div class="form-container">
+                    <h3>2. Cloud-System aus Backup wiederherstellen</h3>
+                    <p style="color: #888;">Lade eine .json-Datei hoch, um die Firebase-Cloud komplett auf diesen Stand zu überschreiben. Hilft bei versehentlich gelöschten Akten.</p>
+                    <input type="file" id="backup-file" accept=".json" style="color: #00ff41; padding: 10px; border: 1px solid #00ff41; background: #111; margin-bottom: 15px;"><br>
+                    <button class="submit-btn" style="background-color: #ff9800; color: #111;" onclick="importBackup()">Backup in die Cloud laden</button>
                 </div>
             </div>
         </div>
@@ -311,20 +320,15 @@
         // ECHTZEIT-LISTENERS (Warten auf Änderungen)
         // =========================================
         
-        // 1. Wetter
         db.ref('weather').on('value', snap => {
             const w = snap.val() || "Heiter bis wolkig, mäßiger Wind vom Ozean.";
             document.getElementById('public-weather-text').innerText = w;
             document.getElementById('weather-input').value = w;
         });
 
-        // 2. News
         db.ref('news').on('value', snap => {
             const newsObj = snap.val() || {};
-            // Umwandeln in ein Array und sortieren (neueste zuerst)
             const newsArr = Object.values(newsObj).sort((a, b) => b.id - a.id);
-            
-            // Rendern auf beiden Seiten
             const publicBoard = document.getElementById('public-news-content');
             const backendBoard = document.getElementById('news-backend-list');
             
@@ -345,11 +349,8 @@
             }
         });
 
-        // 3. Personen (NPCs)
         db.ref('npcs').on('value', snap => {
             globalNPCs = Object.values(snap.val() || {});
-            
-            // Liste rendern
             const list = document.getElementById('npc-list'); list.innerHTML = ''; 
             globalNPCs.forEach(person => { 
                 const card = document.createElement('div'); card.className = 'npc-card'; 
@@ -361,24 +362,12 @@
                 `; 
                 list.appendChild(card); 
             });
-            renderBoard(); // Pinnwand aktualisieren
-        });
-
-        // 4. Pinnwand Positionen
-        db.ref('positions').on('value', snap => {
-            globalPositions = snap.val() || {};
             renderBoard();
         });
 
-        // 5. Pinnwand Fäden
-        db.ref('links').on('value', snap => {
-            // Wir speichern auch den Firebase-Schlüssel, um ihn löschen zu können
-            const data = snap.val() || {};
-            globalLinks = Object.keys(data).map(key => ({...data[key], dbKey: key}));
-            drawAllStrings();
-        });
-
-        // 6. Karte (Pins)
+        db.ref('positions').on('value', snap => { globalPositions = snap.val() || {}; renderBoard(); });
+        db.ref('links').on('value', snap => { const data = snap.val() || {}; globalLinks = Object.keys(data).map(key => ({...data[key], dbKey: key})); drawAllStrings(); });
+        
         db.ref('pins').on('value', snap => {
             document.querySelectorAll('.map-pin').forEach(p => p.remove()); 
             const pins = Object.values(snap.val() || {});
@@ -390,7 +379,6 @@
             });
         });
 
-        // 7. Chronik
         db.ref('chronicle').on('value', snap => {
             const list = document.getElementById('chronicle-list'); list.innerHTML = ''; 
             const chron = Object.values(snap.val() || {}).sort((a, b) => a.id - b.id);
@@ -401,16 +389,11 @@
             });
         });
 
-        // 8. Spieler Notizen (Live Tippen)
         db.ref('playerNotes').on('value', snap => {
             const textarea = document.getElementById('player-notes-area');
-            // Nur updaten, wenn man nicht selbst gerade tippt (sonst springt der Cursor)
-            if(document.activeElement !== textarea) {
-                textarea.value = snap.val() || "";
-            }
+            if(document.activeElement !== textarea) { textarea.value = snap.val() || ""; }
         });
 
-        // 9. Handouts
         db.ref('handouts').on('value', snap => {
             const list = document.getElementById('handout-list'); list.innerHTML = ''; 
             const handouts = Object.values(snap.val() || {});
@@ -422,15 +405,12 @@
             });
         });
 
-
         // =========================================
         // SPEICHER-FUNKTIONEN (Senden an Cloud)
         // =========================================
-
         function saveWeather() { db.ref('weather').set(document.getElementById('weather-input').value); }
         function saveNews(e) { e.preventDefault(); const id = Date.now(); db.ref('news/' + id).set({ id, date: document.getElementById('news-date').value, headline: document.getElementById('news-headline').value, text: document.getElementById('news-text').value }); document.getElementById('news-form').reset(); }
         function deleteNews(id) { db.ref('news/' + id).remove(); }
-        
         function saveChronicleEvent(e) { e.preventDefault(); const id = Date.now(); db.ref('chronicle/' + id).set({ id, time: document.getElementById('chronicle-time').value, text: document.getElementById('chronicle-event').value }); document.getElementById('chronicle-form').reset(); }
         function savePlayerNotes() { db.ref('playerNotes').set(document.getElementById('player-notes-area').value); }
         
@@ -438,29 +418,15 @@
         function savePerson(e) { 
             e.preventDefault(); 
             const name = document.getElementById('npc-name').value; const role = document.getElementById('npc-role').value; const image = document.getElementById('npc-image').value; const status = document.getElementById('npc-status').value; const notes = document.getElementById('npc-notes').value;
-            
-            if (editingNpcId) {
-                db.ref('npcs/' + editingNpcId).update({name, role, image, status, notes});
-                cancelEditPerson();
-            } else {
-                const id = Date.now(); 
-                db.ref('npcs/' + id).set({ id, name, role, image, status, notes }); 
-                // Setze direkt eine zufällige Position für die Pinnwand
-                db.ref('positions/' + id).set({x: Math.floor(Math.random()*400)+20, y: Math.floor(Math.random()*400)+20});
-            }
+            if (editingNpcId) { db.ref('npcs/' + editingNpcId).update({name, role, image, status, notes}); cancelEditPerson();
+            } else { const id = Date.now(); db.ref('npcs/' + id).set({ id, name, role, image, status, notes }); db.ref('positions/' + id).set({x: Math.floor(Math.random()*400)+20, y: Math.floor(Math.random()*400)+20}); }
             document.getElementById('npc-form').reset();
         }
-        function editPerson(id) {
-            const p = globalNPCs.find(n => n.id === id);
-            if(p) { document.getElementById('npc-name').value = p.name; document.getElementById('npc-role').value = p.role; document.getElementById('npc-image').value = p.image || ''; document.getElementById('npc-status').value = p.status; document.getElementById('npc-notes').value = p.notes; editingNpcId = id; document.getElementById('npc-submit-btn').innerText = "Änderungen speichern"; document.getElementById('npc-cancel-btn').style.display = 'inline-block'; document.getElementById('tab-personen').scrollIntoView({behavior: 'smooth'}); }
-        }
+        function editPerson(id) { const p = globalNPCs.find(n => n.id === id); if(p) { document.getElementById('npc-name').value = p.name; document.getElementById('npc-role').value = p.role; document.getElementById('npc-image').value = p.image || ''; document.getElementById('npc-status').value = p.status; document.getElementById('npc-notes').value = p.notes; editingNpcId = id; document.getElementById('npc-submit-btn').innerText = "Änderungen speichern"; document.getElementById('npc-cancel-btn').style.display = 'inline-block'; document.getElementById('tab-personen').scrollIntoView({behavior: 'smooth'}); } }
         function cancelEditPerson() { editingNpcId = null; document.getElementById('npc-form').reset(); document.getElementById('npc-submit-btn').innerText = "Akte speichern"; document.getElementById('npc-cancel-btn').style.display = 'none'; }
         function deletePerson(id) { if(confirm("Akte unwiderruflich löschen?")) { db.ref('npcs/' + id).remove(); } }
-
         function addPin(e) { if (e.target.classList.contains('map-pin')) return; const rect = document.getElementById('map-container').getBoundingClientRect(); const note = prompt("Information anpinnen:"); if (note && note.trim() !== "") { const id = Date.now(); db.ref('pins/' + id).set({ id, x: ((e.clientX - rect.left) / rect.width) * 100, y: ((e.clientY - rect.top) / rect.height) * 100, note }); } }
-        
         function saveHandout(e) { e.preventDefault(); const id = Date.now(); db.ref('handouts/' + id).set({ id, title: document.getElementById('handout-title').value, image: document.getElementById('handout-image').value, text: document.getElementById('handout-text').value }); document.getElementById('handout-form').reset(); }
-
 
         // =========================================
         // PINNWAND LOGIK (Echtzeit-Synchronisiert)
@@ -469,7 +435,6 @@
 
         function renderBoard() {
             const container = document.getElementById('board-container'); 
-            
             globalNPCs.forEach(person => {
                 let note = document.getElementById('note-' + person.id);
                 if(!note) {
@@ -477,59 +442,24 @@
                     note.onmousedown = startDrag; note.oncontextmenu = function(e) { e.preventDefault(); handleLinkSelection(person.id, note); };
                     container.appendChild(note);
                 }
-
-                // InnerHTML nur updaten wenn nötig (verhindert Flackern)
                 let imageHTML = person.image && person.image.trim() !== '' ? `<img src="${person.image}">` : '';
                 let newHTML = `${imageHTML}<strong>${person.name}</strong>`;
                 if(note.innerHTML !== newHTML) note.innerHTML = newHTML;
 
-                // Position nur überschreiben, wenn wir es nicht gerade selbst ziehen!
                 if(currentDragElement !== note) {
                     let pos = globalPositions[person.id] || {x: 20, y: 20};
                     note.style.left = pos.x + 'px'; note.style.top = pos.y + 'px';
                 }
-
-                if(selectedNodeId === person.id) note.classList.add('selected-for-link');
-                else note.classList.remove('selected-for-link');
+                if(selectedNodeId === person.id) note.classList.add('selected-for-link'); else note.classList.remove('selected-for-link');
             });
-
-            // Alte Zettel entfernen, falls NPC gelöscht wurde
-            Array.from(container.querySelectorAll('.board-note')).forEach(note => {
-                const id = parseInt(note.id.replace('note-', ''));
-                if(!globalNPCs.find(p => p.id === id)) note.remove();
-            });
-
+            Array.from(container.querySelectorAll('.board-note')).forEach(note => { const id = parseInt(note.id.replace('note-', '')); if(!globalNPCs.find(p => p.id === id)) note.remove(); });
             drawAllStrings();
         }
 
         function startDrag(e) { if(e.button === 2) return; isDragging = true; currentDragElement = this; const rect = currentDragElement.getBoundingClientRect(); dragOffsetX = e.clientX - rect.left; dragOffsetY = e.clientY - rect.top; currentDragElement.style.zIndex = 30; document.addEventListener('mousemove', drag); document.addEventListener('mouseup', endDrag); }
-        
-        function drag(e) { 
-            if (!isDragging) return; const container = document.getElementById('board-container').getBoundingClientRect(); 
-            let newX = e.clientX - container.left - dragOffsetX; let newY = e.clientY - container.top - dragOffsetY; 
-            newX = Math.max(0, Math.min(newX, container.width - 120)); newY = Math.max(0, Math.min(newY, container.height - 50)); 
-            currentDragElement.style.left = newX + 'px'; currentDragElement.style.top = newY + 'px'; 
-            
-            // ECHTZEIT: Wir senden beim Ziehen die Koordinaten direkt an die Cloud
-            const npcId = currentDragElement.id.replace('note-', '');
-            db.ref('positions/' + npcId).set({ x: newX, y: newY });
-        }
-        
+        function drag(e) { if (!isDragging) return; const container = document.getElementById('board-container').getBoundingClientRect(); let newX = e.clientX - container.left - dragOffsetX; let newY = e.clientY - container.top - dragOffsetY; newX = Math.max(0, Math.min(newX, container.width - 120)); newY = Math.max(0, Math.min(newY, container.height - 50)); currentDragElement.style.left = newX + 'px'; currentDragElement.style.top = newY + 'px'; const npcId = currentDragElement.id.replace('note-', ''); db.ref('positions/' + npcId).set({ x: newX, y: newY }); }
         function endDrag() { if (!isDragging) return; isDragging = false; currentDragElement.style.zIndex = 20; currentDragElement = null; document.removeEventListener('mousemove', drag); document.removeEventListener('mouseup', endDrag); }
-        
-        function handleLinkSelection(id, element) { 
-            if (selectedNodeId === null) { selectedNodeId = id; element.classList.add('selected-for-link'); } 
-            else if (selectedNodeId === id) { selectedNodeId = null; element.classList.remove('selected-for-link'); } 
-            else { 
-                const exists = globalLinks.some(link => (link.start === selectedNodeId && link.end === id) || (link.start === id && link.end === selectedNodeId)); 
-                if (!exists) { 
-                    const labelInput = prompt("Verbindung? (z.B. 'Feinde' oder leer lassen)"); 
-                    const linkId = selectedNodeId + "_" + id; // Einzigartige ID
-                    db.ref('links/' + linkId).set({ start: selectedNodeId, end: id, label: labelInput }); 
-                } 
-                selectedNodeId = null; renderBoard(); 
-            } 
-        }
+        function handleLinkSelection(id, element) { if (selectedNodeId === null) { selectedNodeId = id; element.classList.add('selected-for-link'); } else if (selectedNodeId === id) { selectedNodeId = null; element.classList.remove('selected-for-link'); } else { const exists = globalLinks.some(link => (link.start === selectedNodeId && link.end === id) || (link.start === id && link.end === selectedNodeId)); if (!exists) { const labelInput = prompt("Verbindung? (z.B. 'Feinde' oder leer lassen)"); const linkId = selectedNodeId + "_" + id; db.ref('links/' + linkId).set({ start: selectedNodeId, end: id, label: labelInput }); } selectedNodeId = null; renderBoard(); } }
 
         function drawAllStrings() { 
             const svg = document.getElementById('strings-svg'); const labelsContainer = document.getElementById('string-labels-container'); 
@@ -557,12 +487,37 @@
         function openLightbox(imageUrl) { document.getElementById('lightbox-img').src = imageUrl; document.getElementById('lightbox').style.display = 'flex'; }
         function closeLightbox() { document.getElementById('lightbox').style.display = 'none'; }
 
-        // Cloud-Backup Download
+        // =========================================
+        // NEU: CLOUD BACKUP & RESTORE
+        // =========================================
         function exportBackup() {
             db.ref('/').once('value').then(snap => {
                 const blob = new Blob([JSON.stringify(snap.val())], {type: 'application/json'});
                 const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'harmony_bay_cloud_backup.json'; a.click();
             });
+        }
+        
+        function importBackup() {
+            const fileInput = document.getElementById('backup-file');
+            if (fileInput.files.length === 0) { alert("Bitte wähle zuerst eine Backup-Datei aus!"); return; }
+            
+            if(confirm("Bist du sicher? Dies überschreibt ALLE aktuellen Daten in der Cloud und bei allen Spielern sofort!")) {
+                const file = fileInput.files[0];
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        // Überschreibt die komplette Datenbank in der Cloud auf einen Schlag
+                        db.ref('/').set(data).then(() => {
+                            alert("Cloud-Restore erfolgreich! Das System ist wieder auf dem alten Stand.");
+                            document.getElementById('backup-file').value = ''; // Input Feld leeren
+                        }).catch(err => {
+                            alert("Fehler beim Schreiben in die Cloud: " + err.message);
+                        });
+                    } catch(err) { alert("Fehler beim Lesen der JSON-Datei! Ist das wirklich das Backup?"); }
+                };
+                reader.readAsText(file);
+            }
         }
     </script>
 </body>
