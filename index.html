@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Willkommen in Harmony Bay</title>
+    
+    <!-- NEU: FIREBASE CLOUD ANBINDUNG -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
     <style>
         /* =========================================
            BASIS & TOURISTEN-ANSICHT
@@ -32,11 +37,7 @@
         /* =========================================
            DER SOMY WALKMAN
            ========================================= */
-        #walkman-container {
-            position: fixed; bottom: 20px; right: 20px; background: #2a2a2a; border: 2px solid #111;
-            border-radius: 8px; padding: 15px; box-shadow: 3px 3px 15px rgba(0,0,0,0.8);
-            z-index: 5000; width: 180px; font-family: 'Courier New', Courier, monospace;
-        }
+        #walkman-container { position: fixed; bottom: 20px; right: 20px; background: #2a2a2a; border: 2px solid #111; border-radius: 8px; padding: 15px; box-shadow: 3px 3px 15px rgba(0,0,0,0.8); z-index: 5000; width: 180px; font-family: 'Courier New', Courier, monospace; }
         .walkman-logo { font-size: 0.9rem; font-weight: bold; letter-spacing: 5px; color: #aaa; text-align: left; margin-bottom: 10px; }
         .walkman-tape-window { background-color: #7b8e73; border: 2px solid #111; padding: 5px; text-align: center; font-weight: bold; font-size: 0.8rem; color: #111; margin-bottom: 10px; box-shadow: inset 1px 1px 3px rgba(0,0,0,0.5); text-transform: uppercase; letter-spacing: 1px; }
         .walkman-controls button { width: 100%; background: #d85c18; border: 2px solid #111; color: #fff; font-weight: bold; font-family: inherit; padding: 8px; cursor: pointer; box-shadow: 1px 1px 0px #fff, inset 1px 1px 2px rgba(255,255,255,0.3); text-shadow: 1px 1px 1px rgba(0,0,0,0.8); }
@@ -75,7 +76,7 @@
         .edit-btn { position: absolute; top: 10px; right: 40px; background: none; color: #ff9800; border: 1px solid #ff9800; cursor: pointer; font-family: inherit; font-size: 0.9em; padding: 1px 6px;}
         .edit-btn:hover { background: #ff9800; color: #111; }
 
-        /* Chronik Split-Layout */
+        /* Chronik */
         .split-layout { display: flex; gap: 30px; flex-wrap: wrap; }
         .split-col { flex: 1; min-width: 300px; }
         .chronicle-item { border-left: 3px solid #00ff41; padding-left: 15px; margin-bottom: 20px; position: relative; }
@@ -87,8 +88,6 @@
         .npc-card h3 { margin: 0 0 10px 0; border-bottom: 1px solid #00ff41; padding-bottom: 5px; }
         .status-badge { display: inline-block; padding: 2px 6px; margin-top: 10px; border: 1px solid #00ff41; font-weight: bold; font-size: 0.8em; text-transform: uppercase; }
         .polaroid { background: #eee; padding: 8px 8px 25px 8px; margin-bottom: 15px; box-shadow: 2px 2px 5px rgba(0,0,0,0.8); transform: rotate(-2deg); }
-        
-        /* Das CSS-Fallback für das Lupen-Symbol */
         #npc-list .polaroid img { width: 100%; height: 180px; object-fit: cover; border: 1px solid #ccc; filter: grayscale(100%) contrast(1.2) sepia(20%); cursor: zoom-in; }
 
         /* Karte */
@@ -125,11 +124,13 @@
         /* Glitch Animation */
         .glitch-effect { animation: glitch-skew 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) both infinite; background-color: red !important; }
         @keyframes glitch-skew { 0% { transform: skew(0deg); } 20% { transform: skew(-20deg); filter: invert(1); } 40% { transform: skew(20deg); filter: invert(0); } 60% { transform: skew(-10deg); filter: invert(1); } 80% { transform: skew(10deg); filter: invert(0); } 100% { transform: skew(0deg); } }
+        
+        .live-indicator { color: #00ff41; border: 1px solid #00ff41; padding: 3px 8px; border-radius: 10px; font-size: 0.8em; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
 
-    <!-- DER WALKMAN -->
     <div id="walkman-container">
         <div class="walkman-logo">SOMY</div>
         <div class="walkman-tape-window">MIXTAPE '83</div>
@@ -145,12 +146,12 @@
         <p class="postcard-slogan">"Frische Luft. Freundliche Menschen. Unvergessliche Sonnenuntergänge."</p>
         
         <div id="public-weather-board">
-            <strong>Aktuelles Wetter:</strong> <span id="public-weather-text">Heiter bis wolkig, mäßiger Wind vom Ozean.</span>
+            <strong>Aktuelles Wetter:</strong> <span id="public-weather-text">Lädt vom Server...</span>
         </div>
 
         <div id="public-news-board">
             <h2>Bekanntmachungen & Aktuelles</h2>
-            <div id="public-news-content"><p style="text-align: center; color: #888; font-style: italic;">Lade Neuigkeiten aus dem Rathaus...</p></div>
+            <div id="public-news-content"><p style="text-align: center; color: #888; font-style: italic;">Lädt vom Server...</p></div>
         </div>
         <div class="footer-secret">Copyright &copy; <span class="trigger" onclick="startDosTerminal()">1983</span> Harmony Bay Tourism Board</div>
     </div>
@@ -178,23 +179,23 @@
             <button class="nav-btn" onclick="switchTab('tab-pinnwand', this)">Pinnwand</button>
             <button class="nav-btn" onclick="switchTab('tab-archiv', this)">Archiv</button>
             <button class="nav-btn" onclick="switchTab('tab-system', this)">System</button>
-            <button class="nav-btn logout-btn" onclick="systemLogout()">[ SYSTEM VERLASSEN ]</button>
+            <div style="margin-left: auto; display: flex; align-items: center; gap: 15px;">
+                <span class="live-indicator">● LIVE SYNC</span>
+                <button class="nav-btn logout-btn" style="margin-left:0;" onclick="systemLogout()">[ VERLASSEN ]</button>
+            </div>
         </div>
         
         <div class="content-area">
             
-            <!-- REITER 0: NEWS & WETTER -->
             <div id="tab-news" class="tab-content active-tab">
                 <h2>// SYSTEM: TOURISTEN-SEITE MANIPULIEREN</h2>
-                
                 <div class="form-container" style="border-color: #ff9800;">
                     <h3 style="margin-top: 0; color: #ff9800;">Wetter-Radar anpassen</h3>
                     <div style="display: flex; gap: 10px;">
-                        <input type="text" id="weather-input" placeholder="z.B. Dichter Küstennebel, Sichtweite unter 50 Meter." style="border-color: #ff9800; color: #ff9800;">
+                        <input type="text" id="weather-input" placeholder="z.B. Nebel." style="border-color: #ff9800; color: #ff9800;">
                         <button onclick="saveWeather()" class="submit-btn" style="background: #ff9800;">Aktualisieren</button>
                     </div>
                 </div>
-
                 <div class="form-container">
                     <h3 style="margin-top: 0;">Neue Bekanntmachung verfassen</h3>
                     <form id="news-form" onsubmit="saveNews(event)">
@@ -208,7 +209,6 @@
                 <div id="news-backend-list"></div>
             </div>
 
-            <!-- REITER 0.5: CHRONIK & SPIELER-NOTIZEN -->
             <div id="tab-chronik" class="tab-content">
                 <h2>// FALL-AKTE: CHRONOLOGIE & ERKENNTNISSE</h2>
                 <div class="split-layout">
@@ -226,14 +226,13 @@
                     <div class="split-col">
                         <h3>Gedanken & Theorien der Spieler</h3>
                         <div class="form-container" style="height: 100%;">
-                            <p style="color: #888; font-size: 0.85em; margin-top: 0;">Notiere hier mit, was die Gruppe plant oder wen sie verdächtigt. <strong>Dieses Feld speichert vollautomatisch beim Tippen.</strong></p>
-                            <textarea id="player-notes-area" style="height: 500px; font-size: 1.1rem; line-height: 1.5;" oninput="savePlayerNotes()" placeholder="Die Spieler glauben aktuell, dass der Bürgermeister gelogen hat, weil..."></textarea>
+                            <p style="color: #888; font-size: 0.85em; margin-top: 0;">Notiere hier mit, was die Gruppe plant. <strong>Speichert live für alle.</strong></p>
+                            <textarea id="player-notes-area" style="height: 500px; font-size: 1.1rem; line-height: 1.5;" oninput="savePlayerNotes()" placeholder="Die Spieler glauben aktuell..."></textarea>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- REITER 1: PERSONEN -->
             <div id="tab-personen" class="tab-content">
                 <h2>// DATENBANK: BÜRGER & VERDÄCHTIGE</h2>
                 <div class="form-container">
@@ -251,7 +250,6 @@
                 <div id="npc-list"></div>
             </div>
 
-            <!-- REITER 2: KARTE -->
             <div id="tab-karte" class="tab-content">
                 <h2>// LAGEPLAN HARMONY BAY</h2>
                 <div id="map-container" onclick="addPin(event)">
@@ -259,7 +257,6 @@
                 </div>
             </div>
 
-            <!-- REITER 3: PINNWAND -->
             <div id="tab-pinnwand" class="tab-content">
                 <div class="board-toolbar">
                     <h2>// VERKNÜPFUNGSANALYSE</h2>
@@ -268,7 +265,6 @@
                 <div id="board-container"><svg id="strings-svg"></svg><div id="string-labels-container"></div></div>
             </div>
 
-            <!-- REITER 4: ARCHIV -->
             <div id="tab-archiv" class="tab-content">
                 <h2>// BEWEISMITTEL</h2>
                 <div class="form-container">
@@ -282,17 +278,12 @@
                 <div id="handout-list"></div>
             </div>
 
-            <!-- REITER 5: SYSTEM-WARTUNG (BACKUP) -->
             <div id="tab-system" class="tab-content">
-                <h2>// SYSTEM-WARTUNG & DATENSICHERUNG</h2>
+                <h2>// SYSTEM-WARTUNG (CLOUD BACKUP)</h2>
                 <div class="form-container">
-                    <h3>1. Daten exportieren</h3>
-                    <button class="submit-btn" onclick="exportBackup()">Backup herunterladen</button>
-                </div>
-                <div class="form-container">
-                    <h3>2. Daten importieren</h3>
-                    <input type="file" id="backup-file" accept=".json" style="color: #00ff41; padding: 10px; border: 1px solid #00ff41; background: #111; margin-bottom: 15px;"><br>
-                    <button class="submit-btn" style="background-color: #ff9800; color: #111;" onclick="importBackup()">Backup in System laden</button>
+                    <h3>Manuelles Cloud-Backup herunterladen</h3>
+                    <p style="color: #888;">Deine Daten liegen jetzt sicher in der Firebase-Cloud und werden automatisch synchronisiert. Falls du trotzdem eine Offline-Sicherung als Datei haben möchtest, klicke hier:</p>
+                    <button class="submit-btn" onclick="exportBackup()">Als JSON sichern</button>
                 </div>
             </div>
         </div>
@@ -302,154 +293,277 @@
     <div id="lightbox" onclick="closeLightbox()"><span class="close-lightbox">&times;</span><img id="lightbox-img" src="" onclick="event.stopPropagation(); closeLightbox();"></div>
 
     <script>
-        document.addEventListener("DOMContentLoaded", function() { renderPublicNews(); renderPublicWeather(); });
+        // =========================================
+        // FIREBASE INITIALISIERUNG
+        // =========================================
+        const firebaseConfig = {
+            databaseURL: "https://harmony-bay-default-rtdb.firebaseio.com/"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
 
-        // --- WALKMAN AUDIO ---
-        function toggleAudio() {
-            const audio = document.getElementById('bg-audio'); const btn = document.getElementById('audio-btn');
-            if (audio.paused) { audio.play(); btn.innerText = '⏸ STOP'; } else { audio.pause(); btn.innerText = '▶ PLAY'; }
-        }
+        // Globale Variablen für Echtzeit-Sync
+        let globalNPCs = [];
+        let globalPositions = {};
+        let globalLinks = [];
 
-        // --- DOS TERMINAL & LOGIN ---
-        function startDosTerminal() { document.getElementById('tourist-view').style.display = 'none'; document.getElementById('dos-terminal').style.display = 'block'; document.getElementById('dos-input').focus(); }
-        document.getElementById('dos-input').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                const pass = this.value.toUpperCase().trim();
-                if (pass === 'MONSTER') {
-                    document.getElementById('dos-terminal').style.display = 'none'; this.value = ''; document.getElementById('dos-error').style.display = 'none';
-                    const inv = document.getElementById('investigation-view'); inv.style.display = 'flex'; inv.classList.add('glitch-effect');
-                    setTimeout(() => { 
-                        inv.classList.remove('glitch-effect'); loadBackendNews(); loadPersons(); loadPins(); loadHandouts(); loadChronicle(); loadPlayerNotes(); loadWeatherToInput();
-                    }, 800);
-                } else { document.getElementById('dos-error').style.display = 'block'; this.value = ''; }
+        // =========================================
+        // ECHTZEIT-LISTENERS (Warten auf Änderungen)
+        // =========================================
+        
+        // 1. Wetter
+        db.ref('weather').on('value', snap => {
+            const w = snap.val() || "Heiter bis wolkig, mäßiger Wind vom Ozean.";
+            document.getElementById('public-weather-text').innerText = w;
+            document.getElementById('weather-input').value = w;
+        });
+
+        // 2. News
+        db.ref('news').on('value', snap => {
+            const newsObj = snap.val() || {};
+            // Umwandeln in ein Array und sortieren (neueste zuerst)
+            const newsArr = Object.values(newsObj).sort((a, b) => b.id - a.id);
+            
+            // Rendern auf beiden Seiten
+            const publicBoard = document.getElementById('public-news-content');
+            const backendBoard = document.getElementById('news-backend-list');
+            
+            if (newsArr.length === 0) { 
+                publicBoard.innerHTML = '<p style="text-align: center; color: #888; font-style: italic;">Derzeit keine offiziellen Ankündigungen.</p>'; 
+                backendBoard.innerHTML = '';
+            } else {
+                publicBoard.innerHTML = ''; backendBoard.innerHTML = '';
+                newsArr.forEach(article => { 
+                    const pItem = document.createElement('div'); pItem.className = 'news-article'; 
+                    pItem.innerHTML = `<div class="news-date">${article.date}</div><div class="news-headline">${article.headline}</div><div class="news-content">${article.text.replace(/\n/g, '<br>')}</div>`; 
+                    publicBoard.appendChild(pItem); 
+                    
+                    const bItem = document.createElement('div'); bItem.className = 'backend-news-item'; 
+                    bItem.innerHTML = `<button class="delete-btn" style="top: 5px; right: 5px;" onclick="deleteNews(${article.id})">Löschen</button><strong>${article.date} | ${article.headline}</strong>`; 
+                    backendBoard.appendChild(bItem);
+                });
             }
         });
 
-        function systemLogout() { document.getElementById('investigation-view').style.display = 'none'; renderPublicNews(); renderPublicWeather(); document.getElementById('tourist-view').style.display = 'flex'; }
-        function switchTab(tabId, clickedButton) { const contents = document.querySelectorAll('.tab-content'); contents.forEach(content => content.classList.remove('active-tab')); const buttons = document.querySelectorAll('.nav-btn'); buttons.forEach(btn => btn.classList.remove('active')); document.getElementById(tabId).classList.add('active-tab'); clickedButton.classList.add('active'); if(tabId === 'tab-pinnwand') { loadBoard(); } }
-
-        // --- BACKUP SYSTEM ---
-        function exportBackup() { const data = { news: localStorage.getItem('harmony_news'), npcs: localStorage.getItem('harmony_npcs'), pins: localStorage.getItem('harmony_map_pins'), positions: localStorage.getItem('harmony_board_positions'), links: localStorage.getItem('harmony_board_links'), handouts: localStorage.getItem('harmony_handouts'), weather: localStorage.getItem('harmony_weather'), chronicle: localStorage.getItem('harmony_chronicle'), playerNotes: localStorage.getItem('harmony_player_notes') }; const blob = new Blob([JSON.stringify(data)], {type: 'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'harmony_bay_akte_1983.json'; a.click(); URL.revokeObjectURL(url); }
-        function importBackup() { const fileInput = document.getElementById('backup-file'); if (fileInput.files.length === 0) { alert("Bitte wähle zuerst eine Backup-Datei aus!"); return; } if(confirm("Sicher? Dies überschreibt aktuelle ungespeicherte Daten!")) { const file = fileInput.files[0]; const reader = new FileReader(); reader.onload = function(e) { try { const data = JSON.parse(e.target.result); if(data.news) localStorage.setItem('harmony_news', data.news); if(data.npcs) localStorage.setItem('harmony_npcs', data.npcs); if(data.pins) localStorage.setItem('harmony_map_pins', data.pins); if(data.positions) localStorage.setItem('harmony_board_positions', data.positions); if(data.links) localStorage.setItem('harmony_board_links', data.links); if(data.handouts) localStorage.setItem('harmony_handouts', data.handouts); if(data.weather) localStorage.setItem('harmony_weather', data.weather); if(data.chronicle) localStorage.setItem('harmony_chronicle', data.chronicle); if(data.playerNotes) localStorage.setItem('harmony_player_notes', data.playerNotes); alert("System-Restore erfolgreich!"); location.reload(); } catch(err) { alert("Fehler beim Lesen!"); } }; reader.readAsText(file); } }
-
-        // --- WETTER ---
-        function saveWeather() { const wText = document.getElementById('weather-input').value; localStorage.setItem('harmony_weather', wText); alert("Wetter aktualisiert!"); }
-        function loadWeatherToInput() { const savedWeather = localStorage.getItem('harmony_weather') || "Heiter bis wolkig, mäßiger Wind vom Ozean."; document.getElementById('weather-input').value = savedWeather; }
-        function renderPublicWeather() { const savedWeather = localStorage.getItem('harmony_weather') || "Heiter bis wolkig, mäßiger Wind vom Ozean."; document.getElementById('public-weather-text').innerText = savedWeather; }
-
-        // --- CHRONIK & NOTIZEN ---
-        function saveChronicleEvent(event) { event.preventDefault(); const newEvent = { id: Date.now(), time: document.getElementById('chronicle-time').value, text: document.getElementById('chronicle-event').value }; let chron = JSON.parse(localStorage.getItem('harmony_chronicle')) || []; chron.push(newEvent); localStorage.setItem('harmony_chronicle', JSON.stringify(chron)); document.getElementById('chronicle-form').reset(); loadChronicle(); }
-        function loadChronicle() { const list = document.getElementById('chronicle-list'); list.innerHTML = ''; let chron = JSON.parse(localStorage.getItem('harmony_chronicle')) || []; chron.forEach(item => { const el = document.createElement('div'); el.className = 'chronicle-item'; el.innerHTML = `<button class="delete-btn" style="top: 0; right: 0;" onclick="deleteChronicleEvent(${item.id})">X</button><div class="chronicle-time">${item.time}</div><div>${item.text}</div>`; list.appendChild(el); }); }
-        function deleteChronicleEvent(id) { let chron = JSON.parse(localStorage.getItem('harmony_chronicle')) || []; chron = chron.filter(c => c.id !== id); localStorage.setItem('harmony_chronicle', JSON.stringify(chron)); loadChronicle(); }
-        function savePlayerNotes() { const text = document.getElementById('player-notes-area').value; localStorage.setItem('harmony_player_notes', text); }
-        function loadPlayerNotes() { const text = localStorage.getItem('harmony_player_notes') || ""; document.getElementById('player-notes-area').value = text; }
-
-        // --- NEWS ---
-        function saveNews(event) { event.preventDefault(); const newArticle = { id: Date.now(), date: document.getElementById('news-date').value, headline: document.getElementById('news-headline').value, text: document.getElementById('news-text').value }; let news = JSON.parse(localStorage.getItem('harmony_news')) || []; news.unshift(newArticle); localStorage.setItem('harmony_news', JSON.stringify(news)); document.getElementById('news-form').reset(); loadBackendNews(); }
-        function loadBackendNews() { const list = document.getElementById('news-backend-list'); list.innerHTML = ''; let news = JSON.parse(localStorage.getItem('harmony_news')) || []; news.forEach(article => { const item = document.createElement('div'); item.className = 'backend-news-item'; item.innerHTML = `<button class="delete-btn" style="top: 5px; right: 5px;" onclick="deleteNews(${article.id})">Löschen</button><strong>${article.date} | ${article.headline}</strong>`; list.appendChild(item); }); }
-        function deleteNews(id) { let news = JSON.parse(localStorage.getItem('harmony_news')) || []; news = news.filter(n => n.id !== id); localStorage.setItem('harmony_news', JSON.stringify(news)); loadBackendNews(); }
-        function renderPublicNews() { const board = document.getElementById('public-news-content'); let news = JSON.parse(localStorage.getItem('harmony_news')) || []; if (news.length === 0) { board.innerHTML = '<p style="text-align: center; color: #888; font-style: italic;">Derzeit keine offiziellen Ankündigungen.</p>'; return; } board.innerHTML = ''; news.forEach(article => { const item = document.createElement('div'); item.className = 'news-article'; const formattedText = article.text.replace(/\n/g, '<br>'); item.innerHTML = `<div class="news-date">${article.date}</div><div class="news-headline">${article.headline}</div><div class="news-content">${formattedText}</div>`; board.appendChild(item); }); }
-
-        // --- PERSONEN (Mit ZWANGS-LUPENSYMBOL) ---
-        let editingNpcId = null;
-        function savePerson(event) { 
-            event.preventDefault(); 
-            const name = document.getElementById('npc-name').value;
-            const role = document.getElementById('npc-role').value;
-            const image = document.getElementById('npc-image').value;
-            const status = document.getElementById('npc-status').value;
-            const notes = document.getElementById('npc-notes').value;
+        // 3. Personen (NPCs)
+        db.ref('npcs').on('value', snap => {
+            globalNPCs = Object.values(snap.val() || {});
             
-            let persons = JSON.parse(localStorage.getItem('harmony_npcs')) || []; 
-            if (editingNpcId) {
-                let index = persons.findIndex(p => p.id === editingNpcId);
-                if(index !== -1) {
-                    persons[index].name = name; persons[index].role = role; persons[index].image = image;
-                    persons[index].status = status; persons[index].notes = notes;
-                }
-                editingNpcId = null;
-                document.getElementById('npc-submit-btn').innerText = "Akte speichern";
-                document.getElementById('npc-cancel-btn').style.display = 'none';
-            } else {
-                const newPerson = { id: Date.now(), name, role, image, status, notes }; 
-                persons.push(newPerson); 
-            }
-            localStorage.setItem('harmony_npcs', JSON.stringify(persons)); 
-            document.getElementById('npc-form').reset(); loadPersons(); 
-        }
-
-        function editPerson(id) {
-            let persons = JSON.parse(localStorage.getItem('harmony_npcs')) || [];
-            let person = persons.find(p => p.id === id);
-            if(person) {
-                document.getElementById('npc-name').value = person.name; document.getElementById('npc-role').value = person.role;
-                document.getElementById('npc-image').value = person.image || ''; document.getElementById('npc-status').value = person.status;
-                document.getElementById('npc-notes').value = person.notes;
-                editingNpcId = id; 
-                document.getElementById('npc-submit-btn').innerText = "Änderungen speichern";
-                document.getElementById('npc-cancel-btn').style.display = 'inline-block';
-                document.getElementById('tab-personen').scrollIntoView({behavior: 'smooth'});
-            }
-        }
-
-        function cancelEditPerson() {
-            editingNpcId = null; document.getElementById('npc-form').reset();
-            document.getElementById('npc-submit-btn').innerText = "Akte speichern";
-            document.getElementById('npc-cancel-btn').style.display = 'none';
-        }
-
-        function loadPersons() { 
+            // Liste rendern
             const list = document.getElementById('npc-list'); list.innerHTML = ''; 
-            let persons = JSON.parse(localStorage.getItem('harmony_npcs')) || []; 
-            persons.forEach(person => { 
+            globalNPCs.forEach(person => { 
                 const card = document.createElement('div'); card.className = 'npc-card'; 
-                
-                // HIER IST DER ZWANGS-BEFEHL FÜR DAS LUPENSYMBOL EINGEBAUT (style="cursor: zoom-in;")
-                let imageHTML = person.image && person.image.trim() !== '' 
-                    ? `<div class="polaroid"><img src="${person.image}" onclick="openLightbox('${person.image}')" title="Klicken zum Vergrößern" style="cursor: zoom-in;"></div>` 
-                    : ''; 
-                
+                let imageHTML = person.image && person.image.trim() !== '' ? `<div class="polaroid"><img src="${person.image}" onclick="openLightbox('${person.image}')" title="Klicken zum Vergrößern" style="cursor: zoom-in;"></div>` : ''; 
                 card.innerHTML = `
                     <button class="edit-btn" onclick="editPerson(${person.id})" title="Akte bearbeiten">✎</button>
                     <button class="delete-btn" onclick="deletePerson(${person.id})" title="Akte löschen">X</button>
                     ${imageHTML}<h3>${person.name}</h3><p><strong>Beruf:</strong> ${person.role}</p><p><strong>Akte:</strong> ${person.notes}</p><span class="status-badge">${person.status}</span>
                 `; 
                 list.appendChild(card); 
+            });
+            renderBoard(); // Pinnwand aktualisieren
+        });
+
+        // 4. Pinnwand Positionen
+        db.ref('positions').on('value', snap => {
+            globalPositions = snap.val() || {};
+            renderBoard();
+        });
+
+        // 5. Pinnwand Fäden
+        db.ref('links').on('value', snap => {
+            // Wir speichern auch den Firebase-Schlüssel, um ihn löschen zu können
+            const data = snap.val() || {};
+            globalLinks = Object.keys(data).map(key => ({...data[key], dbKey: key}));
+            drawAllStrings();
+        });
+
+        // 6. Karte (Pins)
+        db.ref('pins').on('value', snap => {
+            document.querySelectorAll('.map-pin').forEach(p => p.remove()); 
+            const pins = Object.values(snap.val() || {});
+            pins.forEach(pinData => { 
+                const p = document.createElement('div'); p.className = 'map-pin'; p.style.left = pinData.x + '%'; p.style.top = pinData.y + '%'; 
+                p.oncontextmenu = function(e) { e.preventDefault(); if(confirm("Pin löschen?")) { db.ref('pins/' + pinData.id).remove(); } }; 
+                const tooltip = document.createElement('div'); tooltip.className = 'pin-tooltip'; tooltip.innerText = pinData.note; p.appendChild(tooltip); 
+                document.getElementById('map-container').appendChild(p); 
+            });
+        });
+
+        // 7. Chronik
+        db.ref('chronicle').on('value', snap => {
+            const list = document.getElementById('chronicle-list'); list.innerHTML = ''; 
+            const chron = Object.values(snap.val() || {}).sort((a, b) => a.id - b.id);
+            chron.forEach(item => { 
+                const el = document.createElement('div'); el.className = 'chronicle-item'; 
+                el.innerHTML = `<button class="delete-btn" style="top: 0; right: 0;" onclick="db.ref('chronicle/${item.id}').remove()">X</button><div class="chronicle-time">${item.time}</div><div>${item.text}</div>`; 
+                list.appendChild(el); 
+            });
+        });
+
+        // 8. Spieler Notizen (Live Tippen)
+        db.ref('playerNotes').on('value', snap => {
+            const textarea = document.getElementById('player-notes-area');
+            // Nur updaten, wenn man nicht selbst gerade tippt (sonst springt der Cursor)
+            if(document.activeElement !== textarea) {
+                textarea.value = snap.val() || "";
+            }
+        });
+
+        // 9. Handouts
+        db.ref('handouts').on('value', snap => {
+            const list = document.getElementById('handout-list'); list.innerHTML = ''; 
+            const handouts = Object.values(snap.val() || {});
+            handouts.forEach(handout => { 
+                const card = document.createElement('div'); card.className = 'handout-card'; 
+                let imgHTML = handout.image && handout.image.trim() !== '' ? `<img src="${handout.image}" class="handout-img" onclick="openLightbox('${handout.image}')" title="Klicken zum Vergrößern">` : ''; 
+                card.innerHTML = `<button class="delete-btn" onclick="db.ref('handouts/${handout.id}').remove()">X</button><h3>${handout.title}</h3>${imgHTML}<div class="handout-text">${handout.text}</div>`; 
+                list.appendChild(card); 
+            });
+        });
+
+
+        // =========================================
+        // SPEICHER-FUNKTIONEN (Senden an Cloud)
+        // =========================================
+
+        function saveWeather() { db.ref('weather').set(document.getElementById('weather-input').value); }
+        function saveNews(e) { e.preventDefault(); const id = Date.now(); db.ref('news/' + id).set({ id, date: document.getElementById('news-date').value, headline: document.getElementById('news-headline').value, text: document.getElementById('news-text').value }); document.getElementById('news-form').reset(); }
+        function deleteNews(id) { db.ref('news/' + id).remove(); }
+        
+        function saveChronicleEvent(e) { e.preventDefault(); const id = Date.now(); db.ref('chronicle/' + id).set({ id, time: document.getElementById('chronicle-time').value, text: document.getElementById('chronicle-event').value }); document.getElementById('chronicle-form').reset(); }
+        function savePlayerNotes() { db.ref('playerNotes').set(document.getElementById('player-notes-area').value); }
+        
+        let editingNpcId = null;
+        function savePerson(e) { 
+            e.preventDefault(); 
+            const name = document.getElementById('npc-name').value; const role = document.getElementById('npc-role').value; const image = document.getElementById('npc-image').value; const status = document.getElementById('npc-status').value; const notes = document.getElementById('npc-notes').value;
+            
+            if (editingNpcId) {
+                db.ref('npcs/' + editingNpcId).update({name, role, image, status, notes});
+                cancelEditPerson();
+            } else {
+                const id = Date.now(); 
+                db.ref('npcs/' + id).set({ id, name, role, image, status, notes }); 
+                // Setze direkt eine zufällige Position für die Pinnwand
+                db.ref('positions/' + id).set({x: Math.floor(Math.random()*400)+20, y: Math.floor(Math.random()*400)+20});
+            }
+            document.getElementById('npc-form').reset();
+        }
+        function editPerson(id) {
+            const p = globalNPCs.find(n => n.id === id);
+            if(p) { document.getElementById('npc-name').value = p.name; document.getElementById('npc-role').value = p.role; document.getElementById('npc-image').value = p.image || ''; document.getElementById('npc-status').value = p.status; document.getElementById('npc-notes').value = p.notes; editingNpcId = id; document.getElementById('npc-submit-btn').innerText = "Änderungen speichern"; document.getElementById('npc-cancel-btn').style.display = 'inline-block'; document.getElementById('tab-personen').scrollIntoView({behavior: 'smooth'}); }
+        }
+        function cancelEditPerson() { editingNpcId = null; document.getElementById('npc-form').reset(); document.getElementById('npc-submit-btn').innerText = "Akte speichern"; document.getElementById('npc-cancel-btn').style.display = 'none'; }
+        function deletePerson(id) { if(confirm("Akte unwiderruflich löschen?")) { db.ref('npcs/' + id).remove(); } }
+
+        function addPin(e) { if (e.target.classList.contains('map-pin')) return; const rect = document.getElementById('map-container').getBoundingClientRect(); const note = prompt("Information anpinnen:"); if (note && note.trim() !== "") { const id = Date.now(); db.ref('pins/' + id).set({ id, x: ((e.clientX - rect.left) / rect.width) * 100, y: ((e.clientY - rect.top) / rect.height) * 100, note }); } }
+        
+        function saveHandout(e) { e.preventDefault(); const id = Date.now(); db.ref('handouts/' + id).set({ id, title: document.getElementById('handout-title').value, image: document.getElementById('handout-image').value, text: document.getElementById('handout-text').value }); document.getElementById('handout-form').reset(); }
+
+
+        // =========================================
+        // PINNWAND LOGIK (Echtzeit-Synchronisiert)
+        // =========================================
+        let selectedNodeId = null; let isDragging = false; let currentDragElement = null; let dragOffsetX = 0; let dragOffsetY = 0;
+
+        function renderBoard() {
+            const container = document.getElementById('board-container'); 
+            
+            globalNPCs.forEach(person => {
+                let note = document.getElementById('note-' + person.id);
+                if(!note) {
+                    note = document.createElement('div'); note.className = 'board-note'; note.id = 'note-' + person.id;
+                    note.onmousedown = startDrag; note.oncontextmenu = function(e) { e.preventDefault(); handleLinkSelection(person.id, note); };
+                    container.appendChild(note);
+                }
+
+                // InnerHTML nur updaten wenn nötig (verhindert Flackern)
+                let imageHTML = person.image && person.image.trim() !== '' ? `<img src="${person.image}">` : '';
+                let newHTML = `${imageHTML}<strong>${person.name}</strong>`;
+                if(note.innerHTML !== newHTML) note.innerHTML = newHTML;
+
+                // Position nur überschreiben, wenn wir es nicht gerade selbst ziehen!
+                if(currentDragElement !== note) {
+                    let pos = globalPositions[person.id] || {x: 20, y: 20};
+                    note.style.left = pos.x + 'px'; note.style.top = pos.y + 'px';
+                }
+
+                if(selectedNodeId === person.id) note.classList.add('selected-for-link');
+                else note.classList.remove('selected-for-link');
+            });
+
+            // Alte Zettel entfernen, falls NPC gelöscht wurde
+            Array.from(container.querySelectorAll('.board-note')).forEach(note => {
+                const id = parseInt(note.id.replace('note-', ''));
+                if(!globalNPCs.find(p => p.id === id)) note.remove();
+            });
+
+            drawAllStrings();
+        }
+
+        function startDrag(e) { if(e.button === 2) return; isDragging = true; currentDragElement = this; const rect = currentDragElement.getBoundingClientRect(); dragOffsetX = e.clientX - rect.left; dragOffsetY = e.clientY - rect.top; currentDragElement.style.zIndex = 30; document.addEventListener('mousemove', drag); document.addEventListener('mouseup', endDrag); }
+        
+        function drag(e) { 
+            if (!isDragging) return; const container = document.getElementById('board-container').getBoundingClientRect(); 
+            let newX = e.clientX - container.left - dragOffsetX; let newY = e.clientY - container.top - dragOffsetY; 
+            newX = Math.max(0, Math.min(newX, container.width - 120)); newY = Math.max(0, Math.min(newY, container.height - 50)); 
+            currentDragElement.style.left = newX + 'px'; currentDragElement.style.top = newY + 'px'; 
+            
+            // ECHTZEIT: Wir senden beim Ziehen die Koordinaten direkt an die Cloud
+            const npcId = currentDragElement.id.replace('note-', '');
+            db.ref('positions/' + npcId).set({ x: newX, y: newY });
+        }
+        
+        function endDrag() { if (!isDragging) return; isDragging = false; currentDragElement.style.zIndex = 20; currentDragElement = null; document.removeEventListener('mousemove', drag); document.removeEventListener('mouseup', endDrag); }
+        
+        function handleLinkSelection(id, element) { 
+            if (selectedNodeId === null) { selectedNodeId = id; element.classList.add('selected-for-link'); } 
+            else if (selectedNodeId === id) { selectedNodeId = null; element.classList.remove('selected-for-link'); } 
+            else { 
+                const exists = globalLinks.some(link => (link.start === selectedNodeId && link.end === id) || (link.start === id && link.end === selectedNodeId)); 
+                if (!exists) { 
+                    const labelInput = prompt("Verbindung? (z.B. 'Feinde' oder leer lassen)"); 
+                    const linkId = selectedNodeId + "_" + id; // Einzigartige ID
+                    db.ref('links/' + linkId).set({ start: selectedNodeId, end: id, label: labelInput }); 
+                } 
+                selectedNodeId = null; renderBoard(); 
+            } 
+        }
+
+        function drawAllStrings() { 
+            const svg = document.getElementById('strings-svg'); const labelsContainer = document.getElementById('string-labels-container'); 
+            svg.innerHTML = ''; labelsContainer.innerHTML = ''; 
+            globalLinks.forEach(link => { 
+                const startEl = document.getElementById('note-' + link.start); const endEl = document.getElementById('note-' + link.end); 
+                if(startEl && endEl) { 
+                    const x1 = parseInt(startEl.style.left) + (startEl.offsetWidth / 2); const y1 = parseInt(startEl.style.top) + (startEl.offsetHeight / 2); const x2 = parseInt(endEl.style.left) + (endEl.offsetWidth / 2); const y2 = parseInt(endEl.style.top) + (endEl.offsetHeight / 2); 
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line'); line.setAttribute('x1', x1); line.setAttribute('y1', y1); line.setAttribute('x2', x2); line.setAttribute('y2', y2); line.setAttribute('class', 'string-line'); svg.appendChild(line); 
+                    const midX = (x1 + x2) / 2; const midY = (y1 + y2) / 2; const labelDiv = document.createElement('div'); labelDiv.className = 'string-label'; labelDiv.style.left = midX + 'px'; labelDiv.style.top = midY + 'px'; labelDiv.innerText = (link.label && link.label.trim() !== "") ? link.label : "🔗"; labelDiv.title = "Rechtsklick, um diese Verbindung zu löschen"; 
+                    labelDiv.oncontextmenu = function(e) { e.preventDefault(); if(confirm("Verbindung löschen?")) { db.ref('links/' + link.dbKey).remove(); } }; labelsContainer.appendChild(labelDiv); 
+                } 
             }); 
         }
+        function clearStrings() { if(confirm("Alle roten Fäden löschen?")) { db.ref('links').remove(); } }
 
-        function deletePerson(id) { 
-            if(confirm("Soll diese Akte wirklich unwiderruflich gelöscht werden?")) {
-                let persons = JSON.parse(localStorage.getItem('harmony_npcs')) || []; 
-                persons = persons.filter(person => person.id !== id); localStorage.setItem('harmony_npcs', JSON.stringify(persons)); loadPersons(); 
-            }
-        }
-        
-        // --- KARTE ---
-        function addPin(event) { if (event.target.classList.contains('map-pin')) return; const mapContainer = document.getElementById('map-container'); const rect = mapContainer.getBoundingClientRect(); const note = prompt("Information anpinnen:"); if (note && note.trim() !== "") { const newPin = { id: Date.now(), x: ((event.clientX - rect.left) / rect.width) * 100, y: ((event.clientY - rect.top) / rect.height) * 100, note: note }; let pins = JSON.parse(localStorage.getItem('harmony_map_pins')) || []; pins.push(newPin); localStorage.setItem('harmony_map_pins', JSON.stringify(pins)); renderPin(newPin); } }
-        function loadPins() { document.querySelectorAll('.map-pin').forEach(pin => pin.remove()); let pins = JSON.parse(localStorage.getItem('harmony_map_pins')) || []; pins.forEach(pin => renderPin(pin)); }
-        function renderPin(pinData) { const pinElement = document.createElement('div'); pinElement.className = 'map-pin'; pinElement.style.left = pinData.x + '%'; pinElement.style.top = pinData.y + '%'; pinElement.oncontextmenu = function(e) { e.preventDefault(); if(confirm("Pin löschen?")) { deleteMapPin(pinData.id); } }; const tooltip = document.createElement('div'); tooltip.className = 'pin-tooltip'; tooltip.innerText = pinData.note; pinElement.appendChild(tooltip); document.getElementById('map-container').appendChild(pinElement); }
-        function deleteMapPin(id) { let pins = JSON.parse(localStorage.getItem('harmony_map_pins')) || []; pins = pins.filter(pin => pin.id !== id); localStorage.setItem('harmony_map_pins', JSON.stringify(pins)); loadPins(); }
-
-        // --- PINNWAND ---
-        let selectedNodeId = null; let isDragging = false; let currentDragElement = null; let dragOffsetX = 0; let dragOffsetY = 0;
-        function loadBoard() { const container = document.getElementById('board-container'); document.querySelectorAll('.board-note').forEach(note => note.remove()); let persons = JSON.parse(localStorage.getItem('harmony_npcs')) || []; let positions = JSON.parse(localStorage.getItem('harmony_board_positions')) || {}; let defaultX = 20; let defaultY = 20; persons.forEach(person => { const note = document.createElement('div'); note.className = 'board-note'; note.id = 'note-' + person.id; let x = positions[person.id] ? positions[person.id].x : defaultX; let y = positions[person.id] ? positions[person.id].y : defaultY; if(!positions[person.id]){ defaultX += 130; if(defaultX > 600) { defaultX = 20; defaultY += 150; } } note.style.left = x + 'px'; note.style.top = y + 'px'; let imageHTML = person.image && person.image.trim() !== '' ? `<img src="${person.image}">` : ''; note.innerHTML = `${imageHTML}<strong>${person.name}</strong>`; note.onmousedown = startDrag; note.oncontextmenu = function(e) { e.preventDefault(); handleLinkSelection(person.id, note); }; container.appendChild(note); }); drawAllStrings(); }
-        function startDrag(e) { if(e.button === 2) return; isDragging = true; currentDragElement = this; const rect = currentDragElement.getBoundingClientRect(); dragOffsetX = e.clientX - rect.left; dragOffsetY = e.clientY - rect.top; currentDragElement.style.zIndex = 30; document.addEventListener('mousemove', drag); document.addEventListener('mouseup', endDrag); }
-        function drag(e) { if (!isDragging) return; const container = document.getElementById('board-container').getBoundingClientRect(); let newX = e.clientX - container.left - dragOffsetX; let newY = e.clientY - container.top - dragOffsetY; newX = Math.max(0, Math.min(newX, container.width - 120)); newY = Math.max(0, Math.min(newY, container.height - 50)); currentDragElement.style.left = newX + 'px'; currentDragElement.style.top = newY + 'px'; drawAllStrings(); }
-        function endDrag() { if (!isDragging) return; isDragging = false; currentDragElement.style.zIndex = 20; let positions = JSON.parse(localStorage.getItem('harmony_board_positions')) || {}; const npcId = currentDragElement.id.replace('note-', ''); positions[npcId] = { x: parseInt(currentDragElement.style.left), y: parseInt(currentDragElement.style.top) }; localStorage.setItem('harmony_board_positions', JSON.stringify(positions)); currentDragElement = null; document.removeEventListener('mousemove', drag); document.removeEventListener('mouseup', endDrag); }
-        function handleLinkSelection(id, element) { if (selectedNodeId === null) { selectedNodeId = id; element.classList.add('selected-for-link'); } else if (selectedNodeId === id) { selectedNodeId = null; element.classList.remove('selected-for-link'); } else { let links = JSON.parse(localStorage.getItem('harmony_board_links')) || []; const exists = links.some(link => (link.start === selectedNodeId && link.end === id) || (link.start === id && link.end === selectedNodeId)); if (!exists) { const labelInput = prompt("Verbindung? (z.B. 'Feinde' oder leer lassen)"); links.push({ start: selectedNodeId, end: id, label: labelInput }); localStorage.setItem('harmony_board_links', JSON.stringify(links)); } document.getElementById('note-' + selectedNodeId).classList.remove('selected-for-link'); selectedNodeId = null; drawAllStrings(); } }
-        function drawAllStrings() { const svg = document.getElementById('strings-svg'); const labelsContainer = document.getElementById('string-labels-container'); svg.innerHTML = ''; labelsContainer.innerHTML = ''; let links = JSON.parse(localStorage.getItem('harmony_board_links')) || []; links.forEach(link => { const startEl = document.getElementById('note-' + link.start); const endEl = document.getElementById('note-' + link.end); if(startEl && endEl) { const x1 = parseInt(startEl.style.left) + (startEl.offsetWidth / 2); const y1 = parseInt(startEl.style.top) + (startEl.offsetHeight / 2); const x2 = parseInt(endEl.style.left) + (endEl.offsetWidth / 2); const y2 = parseInt(endEl.style.top) + (endEl.offsetHeight / 2); const line = document.createElementNS('http://www.w3.org/2000/svg', 'line'); line.setAttribute('x1', x1); line.setAttribute('y1', y1); line.setAttribute('x2', x2); line.setAttribute('y2', y2); line.setAttribute('class', 'string-line'); svg.appendChild(line); const midX = (x1 + x2) / 2; const midY = (y1 + y2) / 2; const labelDiv = document.createElement('div'); labelDiv.className = 'string-label'; labelDiv.style.left = midX + 'px'; labelDiv.style.top = midY + 'px'; labelDiv.innerText = (link.label && link.label.trim() !== "") ? link.label : "🔗"; labelDiv.title = "Rechtsklick, um diese Verbindung zu löschen"; labelDiv.oncontextmenu = function(e) { e.preventDefault(); if(confirm("Verbindung löschen?")) { deleteSingleString(link.start, link.end); } }; labelsContainer.appendChild(labelDiv); } }); }
-        function deleteSingleString(startId, endId) { let links = JSON.parse(localStorage.getItem('harmony_board_links')) || []; links = links.filter(link => !((link.start === startId && link.end === endId) || (link.start === endId && link.end === startId))); localStorage.setItem('harmony_board_links', JSON.stringify(links)); drawAllStrings(); }
-        function clearStrings() { if(confirm("Alle roten Fäden löschen?")) { localStorage.removeItem('harmony_board_links'); drawAllStrings(); } }
-
-        // --- HANDOUTS ---
-        function saveHandout(event) { event.preventDefault(); const newHandout = { id: Date.now(), title: document.getElementById('handout-title').value, image: document.getElementById('handout-image').value, text: document.getElementById('handout-text').value }; let handouts = JSON.parse(localStorage.getItem('harmony_handouts')) || []; handouts.push(newHandout); localStorage.setItem('harmony_handouts', JSON.stringify(handouts)); document.getElementById('handout-form').reset(); loadHandouts(); }
-        function loadHandouts() { const list = document.getElementById('handout-list'); list.innerHTML = ''; let handouts = JSON.parse(localStorage.getItem('harmony_handouts')) || []; handouts.forEach(handout => { const card = document.createElement('div'); card.className = 'handout-card'; let imgHTML = ''; if(handout.image && handout.image.trim() !== '') { imgHTML = `<img src="${handout.image}" class="handout-img" onclick="openLightbox('${handout.image}')" title="Klicken zum Vergrößern">`; } card.innerHTML = `<button class="delete-btn" onclick="deleteHandout(${handout.id})">X</button><h3>${handout.title}</h3>${imgHTML}<div class="handout-text">${handout.text}</div>`; list.appendChild(card); }); }
-        function deleteHandout(id) { let handouts = JSON.parse(localStorage.getItem('harmony_handouts')) || []; handouts = handouts.filter(h => h.id !== id); localStorage.setItem('harmony_handouts', JSON.stringify(handouts)); loadHandouts(); }
-        
-        // --- LIGHTBOX (Vollbild für Bilder) ---
+        // =========================================
+        // SONSTIGES & INTERFACE
+        // =========================================
+        function toggleAudio() { const audio = document.getElementById('bg-audio'); const btn = document.getElementById('audio-btn'); if (audio.paused) { audio.play(); btn.innerText = '⏸ STOP'; } else { audio.pause(); btn.innerText = '▶ PLAY'; } }
+        function startDosTerminal() { document.getElementById('tourist-view').style.display = 'none'; document.getElementById('dos-terminal').style.display = 'block'; document.getElementById('dos-input').focus(); }
+        document.getElementById('dos-input').addEventListener('keypress', function(e) { if (e.key === 'Enter') { const pass = this.value.toUpperCase().trim(); if (pass === 'MONSTER') { document.getElementById('dos-terminal').style.display = 'none'; this.value = ''; document.getElementById('dos-error').style.display = 'none'; const inv = document.getElementById('investigation-view'); inv.style.display = 'flex'; inv.classList.add('glitch-effect'); setTimeout(() => { inv.classList.remove('glitch-effect'); }, 800); } else { document.getElementById('dos-error').style.display = 'block'; this.value = ''; } } });
+        function systemLogout() { document.getElementById('investigation-view').style.display = 'none'; document.getElementById('tourist-view').style.display = 'flex'; }
+        function switchTab(tabId, clickedButton) { const contents = document.querySelectorAll('.tab-content'); contents.forEach(content => content.classList.remove('active-tab')); const buttons = document.querySelectorAll('.nav-btn'); buttons.forEach(btn => btn.classList.remove('active')); document.getElementById(tabId).classList.add('active-tab'); clickedButton.classList.add('active'); if(tabId === 'tab-pinnwand') { renderBoard(); } }
         function openLightbox(imageUrl) { document.getElementById('lightbox-img').src = imageUrl; document.getElementById('lightbox').style.display = 'flex'; }
         function closeLightbox() { document.getElementById('lightbox').style.display = 'none'; }
+
+        // Cloud-Backup Download
+        function exportBackup() {
+            db.ref('/').once('value').then(snap => {
+                const blob = new Blob([JSON.stringify(snap.val())], {type: 'application/json'});
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'harmony_bay_cloud_backup.json'; a.click();
+            });
+        }
     </script>
 </body>
 </html>
