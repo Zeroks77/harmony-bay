@@ -88,7 +88,7 @@
         .status-badge { display: inline-block; padding: 2px 6px; margin-top: 10px; border: 1px solid #00ff41; font-weight: bold; font-size: 0.8em; text-transform: uppercase; }
         .polaroid { background: #eee; padding: 8px 8px 25px 8px; margin-bottom: 15px; box-shadow: 2px 2px 5px rgba(0,0,0,0.8); transform: rotate(-2deg); }
         
-        /* NEU: cursor: zoom-in für Polaroid-Bilder hinzugefügt */
+        /* Das CSS-Fallback für das Lupen-Symbol */
         #npc-list .polaroid img { width: 100%; height: 180px; object-fit: cover; border: 1px solid #ccc; filter: grayscale(100%) contrast(1.2) sepia(20%); cursor: zoom-in; }
 
         /* Karte */
@@ -350,7 +350,7 @@
         function deleteNews(id) { let news = JSON.parse(localStorage.getItem('harmony_news')) || []; news = news.filter(n => n.id !== id); localStorage.setItem('harmony_news', JSON.stringify(news)); loadBackendNews(); }
         function renderPublicNews() { const board = document.getElementById('public-news-content'); let news = JSON.parse(localStorage.getItem('harmony_news')) || []; if (news.length === 0) { board.innerHTML = '<p style="text-align: center; color: #888; font-style: italic;">Derzeit keine offiziellen Ankündigungen.</p>'; return; } board.innerHTML = ''; news.forEach(article => { const item = document.createElement('div'); item.className = 'news-article'; const formattedText = article.text.replace(/\n/g, '<br>'); item.innerHTML = `<div class="news-date">${article.date}</div><div class="news-headline">${article.headline}</div><div class="news-content">${formattedText}</div>`; board.appendChild(item); }); }
 
-        // --- PERSONEN (Mit Lightbox Update) ---
+        // --- PERSONEN (Mit ZWANGS-LUPENSYMBOL) ---
         let editingNpcId = null;
         function savePerson(event) { 
             event.preventDefault(); 
@@ -404,9 +404,9 @@
             persons.forEach(person => { 
                 const card = document.createElement('div'); card.className = 'npc-card'; 
                 
-                // NEU: HIER WURDE DIE LIGHTBOX-FUNKTION (onclick) EINGEBAUT!
+                // HIER IST DER ZWANGS-BEFEHL FÜR DAS LUPENSYMBOL EINGEBAUT (style="cursor: zoom-in;")
                 let imageHTML = person.image && person.image.trim() !== '' 
-                    ? `<div class="polaroid"><img src="${person.image}" onclick="openLightbox('${person.image}')" title="Klicken zum Vergrößern"></div>` 
+                    ? `<div class="polaroid"><img src="${person.image}" onclick="openLightbox('${person.image}')" title="Klicken zum Vergrößern" style="cursor: zoom-in;"></div>` 
                     : ''; 
                 
                 card.innerHTML = `
