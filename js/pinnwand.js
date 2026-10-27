@@ -32,14 +32,28 @@ function renderLinkLegend() {
         `<span class="legend-line"><svg width="26" height="8"><line x1="1" y1="4" x2="25" y2="4" stroke="${t.color}" stroke-width="${t.width}" stroke-dasharray="${t.dash}"/></svg>${t.label}</span>`).join('');
 }
 
-// Sucht im Raster die erste freie Stelle, damit neue Karten nicht übereinander landen
-function findFreeSpot(originX = 40, originY = 40) {
-    const taken = Object.values(globalPositions);
+// Abstand zwischen Karten, damit Faden-Etiketten dazwischen Platz haben
+const CARD_GAP_X = 60, CARD_GAP_Y = 50;
+
+// Belegte Flächen mit der echten Kartengröße (Karten mit Foto/langem Text sind deutlich höher)
+function takenRects() {
+    return Object.entries(globalPositions).map(([id, p]) => {
+        const el = document.getElementById('note-' + id);
+        return { x: p.x, y: p.y, w: (el && el.offsetWidth) || 130, h: (el && el.offsetHeight) || 200 };
+    });
+}
+
+// Sucht die erste freie Stelle, damit neue Karten nicht übereinander landen
+function findFreeSpot(originX = 40, originY = 40, w = 130, h = 200) {
+    const taken = takenRects();
     const vp = document.getElementById('board-viewport');
     const cols = Math.max(4, Math.floor(((vp.clientWidth || 1200) / boardZoom - 40) / CELL_W));
-    for (let i = 0; i < 1000; i++) {
-        const x = originX + (i % cols) * CELL_W, y = originY + Math.floor(i / cols) * CELL_H;
-        if (!taken.some(p => Math.abs(p.x - x) < CELL_W - 30 && Math.abs(p.y - y) < CELL_H - 40)) return { x, y };
+    const free = (x, y) => !taken.some(t => x < t.x + t.w + CARD_GAP_X / 2 && x + w + CARD_GAP_X / 2 > t.x && y < t.y + t.h + CARD_GAP_Y / 2 && y + h + CARD_GAP_Y / 2 > t.y);
+    for (let row = 0; row < 400; row++) {
+        for (let col = 0; col < cols; col++) {
+            const x = originX + col * CELL_W, y = originY + row * 40;
+            if (free(x, y)) return { x, y };
+        }
     }
     return { x: originX, y: originY };
 }
@@ -156,13 +170,18 @@ function fitBoard() {
 }
 function arrangeBoard() {
     if (!confirm("Alle Karten automatisch im Raster anordnen? Überlappungen werden dabei aufgelöst.")) return;
-    const nodes = Array.from(document.querySelectorAll('#board-container .board-note')).map(n => ({ id: n.dataset.id, x: parseFloat(n.style.left) || 0, y: parseFloat(n.style.top) || 0 }));
+    const nodes = Array.from(document.querySelectorAll('#board-container .board-note')).map(el => ({ el, id: el.dataset.id, x: parseFloat(el.style.left) || 0, y: parseFloat(el.style.top) || 0, w: el.offsetWidth, h: el.offsetHeight }));
     nodes.sort((a, b) => (Math.round(a.y / CELL_H) - Math.round(b.y / CELL_H)) || (a.x - b.x)); // grobe Reihenfolge beibehalten
     const cols = Math.max(3, Math.min(10, Math.ceil(Math.sqrt(nodes.length * 1.6))));
+    const colW = Math.max(...nodes.map(n => n.w)) + CARD_GAP_X;
+    // Spaltenweise stapeln: jede Karte kommt in die gerade kürzeste Spalte, mit ihrer echten Höhe
+    const colHeights = new Array(cols).fill(40);
     const updates = {};
-    nodes.forEach((n, i) => {
-        const pos = { x: 40 + (i % cols) * CELL_W, y: 40 + Math.floor(i / cols) * CELL_H }; updates[n.id] = pos;
-        const el = document.getElementById('note-' + n.id); el.style.left = pos.x + 'px'; el.style.top = pos.y + 'px';
+    nodes.forEach(n => {
+        const c = colHeights.indexOf(Math.min(...colHeights));
+        const pos = { x: 40 + c * colW, y: colHeights[c] }; updates[n.id] = pos;
+        colHeights[c] += n.h + CARD_GAP_Y;
+        n.el.style.left = pos.x + 'px'; n.el.style.top = pos.y + 'px';
     });
     db.ref('positions').update(updates);
     updateBoardSize(); drawAllStrings(); fitBoard();
@@ -365,7 +384,8 @@ function renderBoardCanvas(withImages) {
         ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 3; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
         ctx.beginPath(); ctx.moveTo(g.x1, g.y1); ctx.quadraticCurveTo(g.cx, g.cy, g.x2, g.y2); ctx.stroke(); ctx.restore();
     });
-    strings.forEach(({ link, g }) => {
+    notes.forEach(n => drawNoteOnCanvas(ctx, n, withImages));
+    strings.forEach(({ link, g }) => { // Etiketten wie auf der Pinnwand über den Karten
         const text = link.label && link.label.trim() !== '' ? link.label : '🔗';
         ctx.font = '11px "Courier New", monospace'; const tw = Math.min(150, ctx.measureText(text).width);
         ctx.fillStyle = '#fff9c4'; ctx.fillRect(g.lx - tw / 2 - 7, g.ly - 10, tw + 14, 20);
@@ -373,7 +393,6 @@ function renderBoardCanvas(withImages) {
         ctx.fillStyle = linkType(link).color; ctx.fillRect(g.lx - tw / 2 - 7, g.ly - 10, 4, 20);
         ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, g.lx + 2, g.ly, 150);
     });
-    notes.forEach(n => drawNoteOnCanvas(ctx, n, withImages));
     return canvas;
 }
 // Zeichnet eine Karte anhand ihres tatsächlichen Layouts im DOM nach (Farben, Text, Bilder)

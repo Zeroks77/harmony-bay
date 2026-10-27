@@ -198,7 +198,7 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Geo
 /* Farbe, Stärke und Strichelung kommen pro Fadenart aus LINK_TYPES (js/pinnwand.js) */
 .string-line { fill: none; filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.8)); }
 .string-line.active { filter: drop-shadow(0 0 4px #fff); }
-.string-label { position: absolute; background: #fff9c4; color: #111; padding: 3px 6px; border: 1px solid #999; box-shadow: 2px 2px 5px rgba(0,0,0,0.5); font-family: 'Courier New', Courier, monospace; font-size: 0.8em; border-left: 4px solid #cc0000; transform: translate(-50%, -50%); z-index: 18; cursor: pointer; user-select: none; transition: background 0.2s; max-width: 160px; text-align: center; }
+.string-label { position: absolute; background: #fff9c4; color: #111; padding: 3px 6px; border: 1px solid #999; box-shadow: 2px 2px 5px rgba(0,0,0,0.5); font-family: 'Courier New', Courier, monospace; font-size: 0.8em; border-left: 4px solid #cc0000; transform: translate(-50%, -50%); z-index: 25; /* über den Karten (20), damit sie lesbar und klickbar bleiben */ cursor: pointer; user-select: none; transition: background 0.2s; max-width: 160px; text-align: center; }
 .string-label:hover { background: #ffcdd2; color: #900; }
 
 /* Handouts */
