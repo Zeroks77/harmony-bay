@@ -172,10 +172,10 @@ function renderChronicle() {
         if (cat) el.style.setProperty('--cat', cat.color);
         el.innerHTML = `
             <div class="item-actions"><button class="icon-btn" onclick="editChronicle(${item.id})" title="Bearbeiten">✎</button><button class="icon-btn danger" onclick="deleteChronicle(${item.id})" title="Löschen">X</button></div>
-            <div class="chronicle-head">${item.important ? '★ ' : ''}${esc(info.label)}${cat ? `<span class="cat-badge">${cat.label}</span>` : ''}</div>
-            <div class="chronicle-title">${esc(item.text)}</div>
+            <div class="chronicle-head">${item.important ? '★ ' : ''}${richText(info.label)}${cat ? `<span class="cat-badge">${cat.label}</span>` : ''}</div>
+            <div class="chronicle-title">${richText(item.text)}</div>
             ${placeHTML ? `<div class="chronicle-meta">${placeHTML}</div>` : ''}
-            ${item.details ? `<div class="chronicle-details">${esc(item.details)}</div>` : ''}
+            ${item.details ? `<div class="chronicle-details">${richText(item.details)}</div>` : ''}
             ${persons.length ? `<div>${persons.map(pid => `<button class="person-chip" onclick="showPerson(${Number(pid)})" title="Akte öffnen">👤 ${esc(npcName(pid))}</button>`).join('')}</div>` : ''}
         `;
         list.appendChild(el);
@@ -190,8 +190,8 @@ function copyChronicle() {
         if (showDays && (idx === 0 || info.day !== lastDay)) lines.push('', `=== ${info.day !== null ? 'TAG ' + info.day : 'OHNE TAG / VORGESCHICHTE'} ===`);
         lastDay = info.day;
         const cat = CHRON_CATEGORIES[item.category]; const place = item.location || (chronPin(item) || {}).note;
-        lines.push(`${item.important ? '★ ' : ''}[${info.label}] ${item.text}${cat ? ` (${cat.label})` : ''}${place ? ` – ${place}` : ''}`);
-        if (item.details) lines.push('    ' + item.details.replace(/\n/g, '\n    '));
+        lines.push(`${item.important ? '★ ' : ''}[${plainText(info.label)}] ${plainText(item.text)}${cat ? ` (${cat.label})` : ''}${place ? ` – ${place}` : ''}`);
+        if (item.details) lines.push('    ' + plainText(item.details).replace(/\n/g, '\n    '));
         const names = (item.persons || []).map(npcName).filter(Boolean);
         if (names.length) lines.push('    Beteiligt: ' + names.join(', '));
     });

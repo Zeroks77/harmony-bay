@@ -11,8 +11,20 @@ const db = firebase.database();
 // HILFSFUNKTIONEN (von allen Modulen genutzt)
 // =========================================
 function esc(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-// Wie esc(), lässt aber einfache Formatierung (<b>, <i>, <u>, <strong>, <em>, <br>) in News & Handouts zu
-function richText(value) { return esc(value).replace(/&lt;(\/?)(b|i|u|em|strong|br)\s*\/?&gt;/gi, '<$1$2>'); }
+// Wie esc(), lässt aber einfache Formatierung (<b>, <i>, <u>, <strong>, <em>, <br>) und Zeichen wie &gt; / &quot; zu,
+// die in älteren Einträgen stehen (früher wurde alles als HTML dargestellt)
+function richText(value) {
+    return esc(value).replace(/&lt;(\/?)(b|i|u|em|strong|br)\s*\/?&gt;/gi, '<$1$2>').replace(/&amp;(gt|lt|quot|amp|#39|nbsp);/g, '&$1;');
+}
+// Für reinen Text (z.B. Kopieren): <br> zu Zeilenumbruch, Tags und Zeichen-Codes auflösen
+function plainText(value) { const d = document.createElement('div'); d.innerHTML = richText(value).replace(/<br>/gi, '\n'); return d.textContent; }
+
+// Bilder, die nicht laden (z.B. fremde Seiten mit Hotlink-Sperre), ausblenden statt kaputtes Symbol zu zeigen
+document.addEventListener('error', e => {
+    const img = e.target; if (img.tagName !== 'IMG' || !img.closest('.board-note, .polaroid, .handout-card')) return;
+    (img.closest('.polaroid') || img).style.display = 'none';
+    if (img.closest('.board-note')) drawAllStrings(); // Karte ist jetzt kleiner, Fäden neu ausrichten
+}, true);
 function loadPref(key, fallback) { try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); } catch (e) { return fallback; } }
 function savePref(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
 

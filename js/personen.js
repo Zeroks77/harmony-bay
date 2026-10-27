@@ -35,7 +35,7 @@ function renderNpcs() {
         let imageHTML = person.image && person.image.trim() !== '' ? `<div class="polaroid"><img src="${esc(person.image)}" onclick="openLightbox(this.src)" title="Klicken zum Vergrößern"></div>` : '';
         card.innerHTML = `
             <div class="item-actions"><button class="icon-btn" onclick="editPerson(${person.id})" title="Akte bearbeiten">✎</button><button class="icon-btn danger" onclick="deletePerson(${person.id})" title="Akte löschen">X</button></div>
-            ${imageHTML}<h3>${esc(person.name)}</h3><p><strong>Beruf:</strong> ${esc(person.role)}</p><p><strong>Akte:</strong> <span class="npc-notes">${esc(person.notes)}</span></p><span class="status-badge">${esc(person.status)}</span>
+            ${imageHTML}<h3>${esc(person.name)}</h3><p><strong>Beruf:</strong> ${esc(person.role)}</p><p><strong>Akte:</strong> <span class="npc-notes">${richText(person.notes)}</span></p><span class="status-badge">${esc(person.status)}</span>
         `;
         list.appendChild(card);
     });
