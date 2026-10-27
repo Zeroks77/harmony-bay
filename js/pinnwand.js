@@ -26,7 +26,12 @@ let boardZoom = loadPref('hb-board-zoom', 1); let boardW = BOARD_MIN_W; let boar
 
 function initPinnwand() {
     renderLinkLegend();
-    db.ref('positions').on('value', snap => { globalPositions = snap.val() || {}; renderBoard(); });
+    document.getElementById('board-container').style.backgroundImage = `url(${corkTexture()})`;
+    db.ref('positions').on('value', snap => {
+        globalPositions = snap.val() || {};
+        // Während eine Karte gezogen wird, nur die anderen Karten nachziehen – kein kompletter Neuaufbau (sonst ruckelt es)
+        if (dragState && dragState.moved) applyPositionsLight(); else renderBoard();
+    });
     db.ref('boardNotes').on('value', snap => { globalBoardNotes = Object.values(snap.val() || {}); renderBoard(); });
     db.ref('links').on('value', snap => { const data = snap.val() || {}; globalLinks = Object.keys(data).map(key => ({...data[key], dbKey: key})); drawAllStrings(); });
     attachZoomGestures(document.getElementById('board-viewport'), () => boardZoom, setBoardZoom);
@@ -37,6 +42,26 @@ function linkType(link) { return LINK_TYPES[link.type] || LINK_TYPES.unklar; }
 function renderLinkLegend() {
     document.getElementById('link-legend').innerHTML = Object.values(LINK_TYPES).map(t =>
         `<span class="legend-line"><svg width="26" height="8"><line x1="1" y1="4" x2="25" y2="4" stroke="${t.color}" stroke-width="${t.width}" stroke-linecap="round"/></svg>${t.label}</span>`).join('');
+}
+
+// Korkstruktur einmal als Bild erzeugen: ein fertiges Bild lässt sich beim Zoomen billig skalieren,
+// SVG-Rauschfilter müssten bei jeder Zoomstufe neu berechnet werden
+function corkTexture() {
+    const size = 256, c = document.createElement('canvas'); c.width = c.height = size; const ctx = c.getContext('2d');
+    ctx.fillStyle = '#b98b5e'; ctx.fillRect(0, 0, size, size);
+    let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 260; i++) { // größere, weiche Flecken
+        const x = rnd() * size, y = rnd() * size, r = 6 + rnd() * 18;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r); const light = rnd() < 0.5;
+        g.addColorStop(0, light ? 'rgba(225,185,135,0.18)' : 'rgba(120,75,35,0.16)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    for (let i = 0; i < 7000; i++) { // feine Körnung
+        const dark = rnd() < 0.62;
+        ctx.fillStyle = dark ? `rgba(85,48,18,${0.15 + rnd() * 0.35})` : `rgba(240,205,155,${0.15 + rnd() * 0.3})`;
+        ctx.fillRect(rnd() * size, rnd() * size, 0.8 + rnd() * 1.8, 0.8 + rnd() * 1.6);
+    }
+    return c.toDataURL('image/png');
 }
 
 // Feste "Zufalls"-Werte pro Karte/Faden, damit alle Spieler dieselbe schiefe Aufhängung sehen
@@ -150,12 +175,16 @@ function renderBoard() {
 }
 
 // Pinnwand wächst mit den Karten mit (scrollbar) statt sie abzuschneiden
-function updateBoardSize() {
+let boardExtent = { x: 0, y: 0 };
+function updateBoardSize(measure = true) {
     const container = document.getElementById('board-container'); const vp = document.getElementById('board-viewport');
-    let maxX = 0, maxY = 0;
-    container.querySelectorAll('.board-note').forEach(n => { maxX = Math.max(maxX, parseFloat(n.style.left) + (n.offsetWidth || 140)); maxY = Math.max(maxY, parseFloat(n.style.top) + (n.offsetHeight || 170)); });
-    boardW = Math.ceil(Math.max(BOARD_MIN_W, vp.clientWidth / boardZoom, maxX + BOARD_PAD));
-    boardH = Math.ceil(Math.max(BOARD_MIN_H, vp.clientHeight / boardZoom, maxY + BOARD_PAD));
+    if (measure) { // Kartenausdehnung nur neu messen, wenn sich Karten geändert haben (nicht bei jedem Zoomschritt)
+        let maxX = 0, maxY = 0;
+        container.querySelectorAll('.board-note').forEach(n => { maxX = Math.max(maxX, parseFloat(n.style.left) + (n.offsetWidth || 140)); maxY = Math.max(maxY, parseFloat(n.style.top) + (n.offsetHeight || 170)); });
+        boardExtent = { x: maxX, y: maxY };
+    }
+    boardW = Math.ceil(Math.max(BOARD_MIN_W, vp.clientWidth / boardZoom, boardExtent.x + BOARD_PAD));
+    boardH = Math.ceil(Math.max(BOARD_MIN_H, vp.clientHeight / boardZoom, boardExtent.y + BOARD_PAD));
     container.style.width = boardW + 'px'; container.style.height = boardH + 'px'; container.style.transform = `scale(${boardZoom})`;
     const sizer = document.getElementById('board-sizer'); sizer.style.width = boardW * boardZoom + 'px'; sizer.style.height = boardH * boardZoom + 'px';
     document.getElementById('zoom-label').innerText = Math.round(boardZoom * 100) + '%';
@@ -166,7 +195,10 @@ function setBoardZoom(z, anchorX, anchorY) {
     z = Math.max(0.25, Math.min(2, z));
     const ax = anchorX ?? vp.clientWidth / 2, ay = anchorY ?? vp.clientHeight / 2;
     const bx = (vp.scrollLeft + ax) / boardZoom, by = (vp.scrollTop + ay) / boardZoom;
-    boardZoom = z; updateBoardSize();
+    // Während des Zoomens skaliert der Browser die Wand als fertiges Bild, danach wird sie wieder scharf gezeichnet
+    const container = document.getElementById('board-container'); container.style.willChange = 'transform';
+    clearTimeout(setBoardZoom.sharpen); setBoardZoom.sharpen = setTimeout(() => { container.style.willChange = ''; }, 250);
+    boardZoom = z; updateBoardSize(false);
     vp.scrollLeft = bx * z - ax; vp.scrollTop = by * z - ay;
     savePref('hb-board-zoom', boardZoom);
 }
@@ -176,7 +208,9 @@ function fitBoard() {
     const vp = document.getElementById('board-viewport');
     let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
     notes.forEach(n => { const x = parseFloat(n.style.left), y = parseFloat(n.style.top); minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x + n.offsetWidth); maxY = Math.max(maxY, y + n.offsetHeight); });
-    setBoardZoom(Math.min(vp.clientWidth / (maxX - minX + 80), vp.clientHeight / (maxY - minY + 80), 1.2));
+    // Handy: nur die Breite einpassen (lesbar, nach unten scrollen); sonst alles auf einen Blick
+    const byWidth = vp.clientWidth / (maxX - minX + 80);
+    setBoardZoom(boardIsNarrow() ? Math.min(byWidth, 1.2) : Math.min(byWidth, vp.clientHeight / (maxY - minY + 80), 1.2));
     vp.scrollLeft = (minX - 40) * boardZoom; vp.scrollTop = (minY - 40) * boardZoom;
 }
 
@@ -256,26 +290,39 @@ function forceLayoutBox(list, nodes, adj) {
     // Netz so drehen, dass seine lange Seite zur Bildschirmform passt (quer am PC, hochkant am Handy)
     const mx = px.reduce((s, v) => s + v, 0) / n, my = py.reduce((s, v) => s + v, 0) / n;
     let sxx = 0, syy = 0, sxy = 0; for (let k = 0; k < n; k++) { const ax = px[k] - mx, ay = py[k] - my; sxx += ax * ax; syy += ay * ay; sxy += ax * ay; }
+    const narrow = boardIsNarrow();
     const turn = (boardAspect() >= 1 ? 0 : Math.PI / 2) - 0.5 * Math.atan2(2 * sxy, sxx - syy);
     for (let k = 0; k < n; k++) {
         const ax = px[k] - mx, ay = py[k] - my;
-        px[k] = ax * Math.cos(turn) - ay * Math.sin(turn); py[k] = (ax * Math.sin(turn) + ay * Math.cos(turn)) * 1.2; // Karten sind höher als breit
+        // Zusammenschieben: danach werden nur echte Überlappungen wieder aufgelöst – so bleibt kein leerer Kork zwischen den Karten
+        px[k] = (ax * Math.cos(turn) - ay * Math.sin(turn)) * 0.8; py[k] = (ax * Math.sin(turn) + ay * Math.cos(turn)) * 0.8;
     }
     const w = list.map(g => nodes[g].w), h = list.map(g => nodes[g].h);
-    resolveOverlaps(px, py, w, h);
+    if (!narrow && n > 2) { // Netz an die Bildschirmform anpassen (Breitbild: breiter und flacher)
+        const rx = Math.max(...px) - Math.min(...px) + 150, ry = Math.max(...py) - Math.min(...py) + 200;
+        const f = Math.max(0.7, Math.min(1.8, Math.sqrt(boardAspect() * 0.85 / (rx / ry))));
+        for (let k = 0; k < n; k++) { px[k] *= f; py[k] /= f; }
+    }
+    if (narrow) { // Handy: Breite begrenzen, damit die Wand lesbar bleibt – es wird dann nur nach unten gescrollt
+        const minX = Math.min(...px), range = Math.max(...px) - minX, allowed = narrowBoardWidth() - Math.max(...w);
+        if (range > allowed) for (let k = 0; k < n; k++) px[k] = (px[k] - minX) * allowed / range;
+    }
+    resolveOverlaps(px, py, w, h, narrow);
     return toBox(list, px, py, w, h);
 }
-// Schiebt überlappende Karten (echte Größe + Abstand für Etiketten) auseinander
-function resolveOverlaps(px, py, w, h) {
-    for (let pass = 0; pass < 400; pass++) {
+// Schiebt überlappende Karten (echte Größe + Abstand für Etiketten) auseinander; verticalOnly hält die Breite fest (Handy)
+// Beim Aufräumen etwas mehr Luft als beim Platzieren einzelner Karten, damit Etiketten an dicht vernetzten Karten Platz haben
+const LAYOUT_GAP_X = 90, LAYOUT_GAP_Y = 70;
+function resolveOverlaps(px, py, w, h, verticalOnly = false) {
+    for (let pass = 0; pass < 600; pass++) {
         let moved = false;
         for (let a = 0; a < px.length; a++) for (let b = a + 1; b < px.length; b++) {
             const vx = px[a] - px[b], vy = py[a] - py[b];
-            const ox = (w[a] + w[b]) / 2 + CARD_GAP_X - Math.abs(vx), oy = (h[a] + h[b]) / 2 + CARD_GAP_Y - Math.abs(vy);
+            const ox = (w[a] + w[b]) / 2 + LAYOUT_GAP_X - Math.abs(vx), oy = (h[a] + h[b]) / 2 + LAYOUT_GAP_Y - Math.abs(vy);
             if (ox <= 0 || oy <= 0) continue;
             moved = true;
-            if (ox < oy) { const s = (vx >= 0 ? 1 : -1) * ox / 2; px[a] += s; px[b] -= s; }
-            else { const s = (vy >= 0 ? 1 : -1) * oy / 2; py[a] += s; py[b] -= s; }
+            if (ox < oy && !verticalOnly) { const s = (vx >= 0 ? 1 : -1) * ox / 2; px[a] += s; px[b] -= s; }
+            else { const s = (vy > 0 || (vy === 0 && a > b) ? 1 : -1) * oy / 2; py[a] += s; py[b] -= s; }
         }
         if (!moved) break;
     }
@@ -287,8 +334,9 @@ function toBox(list, px, py, w, h) {
 }
 // Lose Karten einer Art im Raster
 function gridBox(list, nodes) {
-    const cols = Math.max(2, Math.ceil(Math.sqrt(list.length)));
     const colW = Math.max(...list.map(g => nodes[g].w)) + CARD_GAP_X;
+    let cols = Math.max(2, Math.ceil(Math.sqrt(list.length)));
+    if (boardIsNarrow()) cols = Math.max(1, Math.floor((narrowBoardWidth() + CARD_GAP_X) / colW));
     const items = []; let y = 0;
     for (let r = 0; r < list.length; r += cols) {
         const row = list.slice(r, r + cols);
@@ -298,24 +346,42 @@ function gridBox(list, nodes) {
     return { w: Math.min(cols, list.length) * colW - CARD_GAP_X, h: y - CARD_GAP_Y, items };
 }
 function boardAspect() { const vp = document.getElementById('board-viewport'); return vp.clientWidth && vp.clientHeight ? vp.clientWidth / vp.clientHeight : 1.6; }
-// Gruppen dicht packen: jede Gruppe an die höchste freie Stelle (dann möglichst links),
-// Gesamtbreite so gewählt, dass die Wand ungefähr die Form des Bildschirms bekommt
+// Handy (schmaler Ausschnitt): Wand nur so breit, dass sie bei ca. 55 % Zoom lesbar ist
+const NARROW_ZOOM = 0.55;
+function boardIsNarrow() { const vp = document.getElementById('board-viewport'); return vp.clientWidth > 0 && vp.clientWidth < 600; }
+function narrowBoardWidth() { return document.getElementById('board-viewport').clientWidth / NARROW_ZOOM - 60; }
+// Gruppen dicht packen: jede Gruppe an die höchste freie Stelle (dann möglichst links).
+// Am PC werden mehrere Gesamtbreiten probiert – genommen wird die, bei der die Wand am größten auf den Bildschirm passt.
 function packBoxes(boxes, nodes) {
-    const GAP = 120;
-    const area = boxes.reduce((s, b) => s + (b.w + GAP) * (b.h + GAP), 0);
-    const maxW = Math.max(...boxes.map(b => b.w), Math.sqrt(area * boardAspect()));
-    const placed = []; const result = new Map();
-    boxes.forEach(box => {
-        const xs = [0, ...placed.map(p => p.x + p.w + GAP)], ys = [0, ...placed.map(p => p.y + p.h + GAP)];
-        let best = null;
-        ys.forEach(y => xs.forEach(x => {
-            if (x > 0 && x + box.w > maxW) return;
-            if (placed.some(p => x < p.x + p.w + GAP && x + box.w + GAP > p.x && y < p.y + p.h + GAP && y + box.h + GAP > p.y)) return;
-            if (!best || y < best.y || (y === best.y && x < best.x)) best = { x, y };
-        }));
-        placed.push({ ...best, w: box.w, h: box.h });
-        box.items.forEach(it => result.set(String(nodes[it.g].id), { x: Math.round(40 + best.x + it.x), y: Math.round(40 + best.y + it.y) }));
-    });
+    const GAP = 100;
+    const packWith = maxW => {
+        const placed = [];
+        boxes.forEach(box => {
+            const xs = [0, ...placed.map(p => p.x + p.w + GAP)], ys = [0, ...placed.map(p => p.y + p.h + GAP)];
+            let best = null;
+            ys.forEach(y => xs.forEach(x => {
+                if (x > 0 && x + box.w > maxW) return;
+                if (placed.some(p => x < p.x + p.w + GAP && x + box.w + GAP > p.x && y < p.y + p.h + GAP && y + box.h + GAP > p.y)) return;
+                if (!best || y < best.y || (y === best.y && x < best.x)) best = { x, y };
+            }));
+            placed.push({ ...best, w: box.w, h: box.h, box });
+        });
+        return { placed, W: Math.max(...placed.map(p => p.x + p.w)), H: Math.max(...placed.map(p => p.y + p.h)) };
+    };
+    const widest = Math.max(...boxes.map(b => b.w));
+    let chosen;
+    if (boardIsNarrow()) chosen = packWith(Math.max(widest, narrowBoardWidth()));
+    else {
+        const vp = document.getElementById('board-viewport'); const vw = vp.clientWidth || 1600, vh = vp.clientHeight || 900;
+        const total = boxes.reduce((s, b) => s + b.w + GAP, 0);
+        for (let i = 0; i <= 16; i++) {
+            const candidate = packWith(widest + (total - widest) * i / 16);
+            candidate.zoom = Math.min(vw / (candidate.W + 80), vh / (candidate.H + 80));
+            if (!chosen || candidate.zoom > chosen.zoom + 0.001) chosen = candidate;
+        }
+    }
+    const result = new Map();
+    chosen.placed.forEach(p => p.box.items.forEach(it => result.set(String(nodes[it.g].id), { x: Math.round(40 + p.x + it.x), y: Math.round(40 + p.y + it.y) })));
     return result;
 }
 // Karten gleiten an ihren neuen Platz, Fäden laufen mit
@@ -348,33 +414,60 @@ function setLinkMode(on) {
 }
 
 // Ziehen per Maus UND Touch (Pointer Events). Kurzes Antippen ohne Bewegung = Menü bzw. Verbinden
+// Die Karte wird beim Ziehen per GPU-Transform verschoben (kein Layout pro Frame) und nur einmal pro Bildschirm-Frame aktualisiert
 function onNotePointerDown(e) {
     if (e.button !== 0) return;
     const note = e.currentTarget;
     const c = document.getElementById('board-container').getBoundingClientRect();
-    dragState = { note, id: Number(note.dataset.id), startX: e.clientX, startY: e.clientY, offX: (e.clientX - c.left) / boardZoom - parseFloat(note.style.left), offY: (e.clientY - c.top) / boardZoom - parseFloat(note.style.top), moved: false, lastSync: 0 };
+    const baseX = parseFloat(note.style.left), baseY = parseFloat(note.style.top);
+    dragState = { note, id: Number(note.dataset.id), startX: e.clientX, startY: e.clientY, baseX, baseY, x: baseX, y: baseY, offX: (e.clientX - c.left) / boardZoom - baseX, offY: (e.clientY - c.top) / boardZoom - baseY, moved: false, lastSync: 0, raf: 0 };
     note.setPointerCapture(e.pointerId);
 }
 function onNotePointerMove(e) {
     const s = dragState; if (!s || s.note !== e.currentTarget) return;
-    if (!s.moved) { if (Math.hypot(e.clientX - s.startX, e.clientY - s.startY) < 6) return; s.moved = true; currentDragElement = s.note; s.note.classList.add('dragging'); }
+    if (!s.moved) {
+        if (Math.hypot(e.clientX - s.startX, e.clientY - s.startY) < 6) return;
+        s.moved = true; currentDragElement = s.note; s.note.classList.add('dragging');
+        s.rects = cardRects().filter(r => r.el !== s.note); // andere Karten bewegen sich nicht – einmal messen reicht
+    }
+    s.clientX = e.clientX; s.clientY = e.clientY;
+    if (!s.raf) s.raf = requestAnimationFrame(() => { s.raf = 0; applyDrag(s); });
+}
+function applyDrag(s) {
+    if (dragState !== s || s.clientX === undefined) return;
     const c = document.getElementById('board-container').getBoundingClientRect();
-    const x = Math.round(Math.max(0, (e.clientX - c.left) / boardZoom - s.offX)); const y = Math.round(Math.max(0, (e.clientY - c.top) / boardZoom - s.offY));
-    s.note.style.left = x + 'px'; s.note.style.top = y + 'px';
-    if (x + 200 > boardW || y + 250 > boardH) updateBoardSize();
-    drawAllStrings();
-    const now = Date.now(); if (now - s.lastSync > 120) { s.lastSync = now; db.ref('positions/' + s.id).set({ x, y }); }
+    s.x = Math.round(Math.max(0, (s.clientX - c.left) / boardZoom - s.offX)); s.y = Math.round(Math.max(0, (s.clientY - c.top) / boardZoom - s.offY));
+    s.note._dragPos = { x: s.x, y: s.y };
+    s.note.style.setProperty('--dx', (s.x - s.baseX) + 'px'); s.note.style.setProperty('--dy', (s.y - s.baseY) + 'px');
+    if (s.x + 200 > boardW || s.y + 250 > boardH) { boardExtent = { x: Math.max(boardExtent.x, s.x + 160), y: Math.max(boardExtent.y, s.y + 260) }; updateBoardSize(false); }
+    drawAllStrings(s.id, s.rects);
+    const now = Date.now(); if (now - s.lastSync > 150) { s.lastSync = now; db.ref('positions/' + s.id).set({ x: s.x, y: s.y }); } // live für die anderen
 }
 function onNotePointerUp(e) {
     const s = dragState; if (!s || s.note !== e.currentTarget) return;
+    if (s.raf) { cancelAnimationFrame(s.raf); s.raf = 0; applyDrag(s); }
     dragState = null;
     if (s.moved) {
-        currentDragElement = null; s.note.classList.remove('dragging');
-        db.ref('positions/' + s.id).set({ x: parseFloat(s.note.style.left), y: parseFloat(s.note.style.top) });
+        const note = s.note;
+        // Erst endgültige Position setzen und Verschiebung auf 0 – noch ohne Übergang –, dann die Karte "loslassen"
+        note.style.left = s.x + 'px'; note.style.top = s.y + 'px'; note.style.setProperty('--dx', '0px'); note.style.setProperty('--dy', '0px');
+        delete note._dragPos; void note.offsetWidth;
+        currentDragElement = null; note.classList.remove('dragging');
+        db.ref('positions/' + s.id).set({ x: s.x, y: s.y });
         updateBoardSize(); drawAllStrings();
     } else if (e.type === 'pointerup' && !s.cancelTap) {
         handleNoteTap(s.id, e);
     }
+}
+// Positionsänderungen anderer (bzw. das Echo der eigenen) während des Ziehens: nur betroffene Karten verschieben
+function applyPositionsLight() {
+    let changed = false;
+    document.querySelectorAll('#board-container .board-note').forEach(note => {
+        if (note === currentDragElement) return;
+        const pos = globalPositions[note.dataset.id]; if (!pos) return;
+        if (parseFloat(note.style.left) !== pos.x || parseFloat(note.style.top) !== pos.y) { note.style.left = pos.x + 'px'; note.style.top = pos.y + 'px'; changed = true; }
+    });
+    if (changed) { if (dragState) dragState.rects = cardRects().filter(r => r.el !== dragState.note); drawAllStrings(); }
 }
 
 function handleNoteTap(id, e) {
@@ -464,9 +557,10 @@ function openLinkMenu(link, e) {
     ]);
 }
 
-// Position der Stecknadel einer Karte (offsetLeft folgt auch der Gleit-Animation beim Aufräumen)
-function pinAnchor(el) { return { x: el.offsetLeft + el.offsetWidth / 2, y: el.offsetTop + PIN_OFFSET_Y }; }
-function cardRects() { return Array.from(document.querySelectorAll('#board-container .board-note')).map(n => ({ x: n.offsetLeft, y: n.offsetTop, w: n.offsetWidth, h: n.offsetHeight })); }
+// Position einer Karte: beim Ziehen die aktuelle Zugposition, sonst offsetLeft (folgt auch der Gleit-Animation beim Aufräumen)
+function notePos(el) { return el._dragPos || { x: el.offsetLeft, y: el.offsetTop }; }
+function pinAnchor(el) { const p = notePos(el); return { x: p.x + el.offsetWidth / 2, y: p.y + PIN_OFFSET_Y }; }
+function cardRects() { return Array.from(document.querySelectorAll('#board-container .board-note')).map(n => { const p = notePos(n); return { el: n, x: p.x, y: p.y, w: n.offsetWidth, h: n.offsetHeight }; }); }
 // Faden von Nadel zu Nadel, hängt je nach Länge durch. Das Etikett sitzt möglichst mittig,
 // rutscht aber entlang des Fadens an eine Stelle, an der es keine Karte verdeckt
 function linkGeometry(link, rects = cardRects()) {
@@ -480,34 +574,58 @@ function linkGeometry(link, rects = cardRects()) {
     return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, cx, cy, lx: spot.x, ly: spot.y };
 }
 
-function drawAllStrings() {
+// Fäden, Etiketten und Nadeln bleiben als Elemente bestehen und werden nur aktualisiert.
+// Mit onlyNodeId (beim Ziehen) werden nur die Fäden dieser einen Karte neu berechnet.
+const stringEls = new Map(); const pinEls = new Map();
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function drawAllStrings(onlyNodeId = null, rectsOverride = null) {
     const svg = document.getElementById('strings-svg'); const labelsContainer = document.getElementById('string-labels-container'); const pins = document.getElementById('board-pins');
-    svg.innerHTML = ''; labelsContainer.innerHTML = ''; pins.innerHTML = '';
-    const rects = cardRects();
+    const notes = Array.from(document.querySelectorAll('#board-container .board-note'));
+    const rects = rectsOverride ? [...rectsOverride, ...(dragState ? [{ x: dragState.x, y: dragState.y, w: dragState.note.offsetWidth, h: dragState.note.offsetHeight }] : [])] : cardRects();
+    const live = new Set();
     globalLinks.forEach(link => {
-        const g = linkGeometry(link, rects); if (!g) return;
+        live.add(link.dbKey);
+        if (onlyNodeId !== null && Number(link.start) !== onlyNodeId && Number(link.end) !== onlyNodeId) return;
+        let els = stringEls.get(link.dbKey);
+        const g = linkGeometry(link, rects);
+        if (!g) { if (els) { els.shadow.remove(); els.base.remove(); els.twist.remove(); els.label.remove(); stringEls.delete(link.dbKey); } return; }
+        if (!els) {
+            // Schatten als versetzter dunkler Faden statt SVG-Filter (Filter müssten bei jeder Bewegung neu berechnet werden)
+            els = { shadow: document.createElementNS(SVG_NS, 'path'), base: document.createElementNS(SVG_NS, 'path'), twist: document.createElementNS(SVG_NS, 'path'), label: document.createElement('div') };
+            els.shadow.setAttribute('class', 'yarn-shadow'); els.twist.setAttribute('class', 'yarn-twist'); els.label.className = 'string-label';
+            const key = link.dbKey; const current = () => globalLinks.find(l => l.dbKey === key);
+            els.label.onclick = e => { const l = current(); if (l) openLinkMenu(l, e); };
+            els.label.oncontextmenu = e => { e.preventDefault(); const l = current(); if (l) openLinkMenu(l, e); };
+            svg.append(els.shadow, els.base, els.twist); labelsContainer.appendChild(els.label);
+            stringEls.set(key, els);
+        }
         const t = linkType(link);
         const active = selectedNodeId !== null && (Number(link.start) === selectedNodeId || Number(link.end) === selectedNodeId);
         const d = `M${g.x1},${g.y1} Q${g.cx},${g.cy} ${g.x2},${g.y2}`;
-        // Wollfaden: farbiger Strang mit Schatten + feine helle "Verdrillung" darüber
-        const base = document.createElementNS('http://www.w3.org/2000/svg', 'path'); base.setAttribute('d', d);
-        base.setAttribute('class', 'yarn' + (active ? ' active' : '')); base.style.stroke = t.color; base.style.strokeWidth = t.width + (active ? 1.5 : 0);
-        const twist = document.createElementNS('http://www.w3.org/2000/svg', 'path'); twist.setAttribute('d', d); twist.setAttribute('class', 'yarn-twist');
-        svg.append(base, twist);
-        const labelDiv = document.createElement('div'); labelDiv.className = 'string-label'; labelDiv.style.left = g.lx + 'px'; labelDiv.style.top = g.ly + 'px';
-        labelDiv.style.borderTopColor = t.color; labelDiv.style.setProperty('--rot', tiltFor(link.dbKey, 4).toFixed(1) + 'deg');
-        labelDiv.innerText = (link.label && link.label.trim() !== "") ? link.label : "🔗"; labelDiv.title = t.label + " – klicken zum Bearbeiten oder Löschen";
-        labelDiv.onclick = e => openLinkMenu(link, e);
-        labelDiv.oncontextmenu = e => { e.preventDefault(); openLinkMenu(link, e); };
-        labelsContainer.appendChild(labelDiv);
+        els.base.setAttribute('d', d); els.twist.setAttribute('d', d);
+        els.shadow.setAttribute('d', `M${g.x1 + 2},${g.y1 + 5} Q${g.cx + 2},${g.cy + 5} ${g.x2 + 2},${g.y2 + 5}`);
+        els.base.setAttribute('class', 'yarn' + (active ? ' active' : '')); els.base.style.stroke = t.color; els.base.style.strokeWidth = t.width + (active ? 1.5 : 0);
+        els.shadow.style.strokeWidth = t.width + 1;
+        els.label.style.left = g.lx + 'px'; els.label.style.top = g.ly + 'px';
+        els.label.style.borderTopColor = t.color; els.label.style.setProperty('--rot', tiltFor(link.dbKey, 4).toFixed(1) + 'deg');
+        const text = (link.label && link.label.trim() !== "") ? link.label : "🔗"; if (els.label.textContent !== text) els.label.textContent = text;
+        els.label.title = t.label + " – klicken zum Bearbeiten oder Löschen";
     });
     // Stecknadeln liegen über den Fäden – die Fäden sind darum geknotet
-    document.querySelectorAll('#board-container .board-note').forEach(n => {
-        if (n.classList.contains('dragging')) return; // abgenommene Karte hat gerade keine Nadel
-        const a = pinAnchor(n); const p = document.createElement('div'); p.className = 'pushpin';
+    const livePins = new Set();
+    notes.forEach(n => {
+        livePins.add(n.dataset.id);
+        if (onlyNodeId !== null && Number(n.dataset.id) !== onlyNodeId) return;
+        let p = pinEls.get(n.dataset.id);
+        if (!p) { p = document.createElement('div'); p.className = 'pushpin'; pins.appendChild(p); pinEls.set(n.dataset.id, p); }
+        const a = pinAnchor(n);
         p.style.left = a.x + 'px'; p.style.top = a.y + 'px'; p.style.setProperty('--pin', n.dataset.pin || PUSHPIN_COLORS.npc);
-        pins.appendChild(p);
+        p.style.display = n.classList.contains('dragging') ? 'none' : ''; // abgenommene Karte hat gerade keine Nadel
     });
+    if (onlyNodeId === null) { // Verwaiste Elemente (gelöschte Fäden/Karten) aufräumen
+        stringEls.forEach((els, key) => { if (!live.has(key)) { els.shadow.remove(); els.base.remove(); els.twist.remove(); els.label.remove(); stringEls.delete(key); } });
+        pinEls.forEach((p, id) => { if (!livePins.has(id)) { p.remove(); pinEls.delete(id); } });
+    }
 }
 function clearStrings() { if(confirm("Alle Fäden löschen?")) { db.ref('links').remove(); } }
 
