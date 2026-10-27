@@ -25,6 +25,7 @@ function showMenu(x, y, title, items) {
     if (title) { const t = document.createElement('div'); t.className = 'menu-title'; t.innerText = title; menu.appendChild(t); }
     items.forEach(item => {
         const b = document.createElement('button'); b.innerText = item.label; if (item.danger) b.className = 'danger';
+        if (item.swatch) { const s = document.createElement('span'); s.className = 'swatch'; s.style.background = item.swatch; b.prepend(s); }
         b.onclick = () => { hideMenu(); item.action(); };
         menu.appendChild(b);
     });
@@ -34,6 +35,22 @@ function showMenu(x, y, title, items) {
 }
 function hideMenu() { document.getElementById('ctx-menu').style.display = 'none'; }
 document.addEventListener('pointerdown', e => { if (!e.target.closest('#ctx-menu')) hideMenu(); });
+
+function flashElement(el) { if (!el) return; el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); }
+
+// Zoom per Strg+Mausrad / Trackpad und per Zwei-Finger-Geste (Pinnwand & Lageplan)
+function attachZoomGestures(vp, getZoom, setZoom) {
+    let pinch = null;
+    const dist = e => Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    vp.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); const r = vp.getBoundingClientRect(); setZoom(getZoom() * (e.deltaY < 0 ? 1.1 : 1 / 1.1), e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+    vp.addEventListener('touchstart', e => { if (e.touches.length === 2) pinch = { dist: dist(e), zoom: getZoom() }; }, { passive: true });
+    vp.addEventListener('touchmove', e => {
+        if (!pinch || e.touches.length !== 2) return; e.preventDefault();
+        const r = vp.getBoundingClientRect();
+        setZoom(pinch.zoom * dist(e) / pinch.dist, (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left, (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top);
+    }, { passive: false });
+    vp.addEventListener('touchend', e => { if (e.touches.length < 2) pinch = null; });
+}
 
 // Bearbeiten-Modus für alle Formulare (news, npc, handout, chronicle)
 const editState = { news: null, npc: null, handout: null, chronicle: null };

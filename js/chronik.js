@@ -18,6 +18,7 @@ let chronNewestFirst = false;
 function initChronik() {
     initChronicleSelects();
     renderChronPersonPicker([]);
+    renderChronPinSelect();
     db.ref('chronicle').on('value', snap => { globalChronicle = Object.values(snap.val() || {}); renderChronicle(); });
     db.ref('playerNotes').on('value', snap => {
         const textarea = document.getElementById('player-notes-area');
@@ -41,6 +42,26 @@ function chronInfo(item) {
     return { day, minutes, label: label || 'Ohne Zeitangabe' };
 }
 function npcName(id) { const p = globalNPCs.find(n => n.id === Number(id)); return p ? p.name : null; }
+// Pin zum Ereignis: fest verknüpft (pinId) oder Ort heißt genau wie ein Pin
+function chronPin(item) {
+    if (item.pinId) { const p = globalPins.find(pin => pin.id === Number(item.pinId)); if (p) return p; }
+    const loc = (item.location || '').trim().toLowerCase();
+    return loc ? globalPins.find(pin => pin.note.trim().toLowerCase() === loc) || null : null;
+}
+function renderChronPinSelect() {
+    const sel = document.getElementById('chronicle-pin'); const current = sel.value;
+    sel.innerHTML = '<option value="">— kein Pin —</option>' + [...globalPins].sort((a, b) => a.note.localeCompare(b.note)).map(p => `<option value="${p.id}">${esc(p.note)}</option>`).join('');
+    sel.value = current; if (sel.value !== current) sel.value = '';
+}
+function onChronPinChange() {
+    const pin = globalPins.find(p => p.id === Number(document.getElementById('chronicle-pin').value));
+    const loc = document.getElementById('chronicle-location'); if (pin && loc.value.trim() === '') loc.value = pin.note;
+}
+function showChronicleForPin(pin) {
+    switchTab('tab-chronik');
+    document.getElementById('chron-search').value = pin.note; renderChronicle();
+    showToast('Gefiltert nach Ort: ' + pin.note);
+}
 
 function initChronicleSelects() {
     const options = Object.entries(CHRON_CATEGORIES).map(([key, c]) => `<option value="${key}">${c.label}</option>`).join('');
@@ -77,6 +98,7 @@ function saveChronicleEvent(e) {
         text: document.getElementById('chronicle-event').value.trim(),
         category: document.getElementById('chronicle-category').value,
         location: document.getElementById('chronicle-location').value.trim(),
+        pinId: Number(document.getElementById('chronicle-pin').value) || null,
         details: document.getElementById('chronicle-details').value.trim(),
         persons: getCheckedPersons(),
         important: document.getElementById('chronicle-important').checked
@@ -100,6 +122,7 @@ function editChronicle(id) {
     document.getElementById('chronicle-event').value = item.text || '';
     document.getElementById('chronicle-category').value = item.category || '';
     document.getElementById('chronicle-location').value = item.location || '';
+    document.getElementById('chronicle-pin').value = item.pinId && globalPins.some(p => p.id === Number(item.pinId)) ? String(item.pinId) : '';
     document.getElementById('chronicle-details').value = item.details || '';
     document.getElementById('chronicle-important').checked = !!item.important;
     renderChronPersonPicker(item.persons || []);
@@ -121,7 +144,7 @@ function getVisibleChronicle() {
         if (cat && item.category !== cat) return false;
         if (person && !(item.persons || []).map(Number).includes(Number(person))) return false;
         if (onlyImportant && !item.important) return false;
-        if (q) { const hay = [info.label, item.text, item.details, item.location, ...(item.persons || []).map(npcName)].join(' ').toLowerCase(); if (!hay.includes(q)) return false; }
+        if (q) { const hay = [info.label, item.text, item.details, item.location, (chronPin(item) || {}).note, ...(item.persons || []).map(npcName)].join(' ').toLowerCase(); if (!hay.includes(q)) return false; }
         return true;
     });
     if (chronNewestFirst) entries.reverse();
@@ -143,13 +166,15 @@ function renderChronicle() {
         lastDay = info.day;
         const cat = CHRON_CATEGORIES[item.category];
         const persons = (item.persons || []).filter(pid => npcName(pid) !== null);
+        const pin = chronPin(item); const place = item.location || (pin ? pin.note : '');
+        const placeHTML = pin ? `<button class="loc-link" onclick="showPinOnMap(${pin.id})" title="Auf dem Lageplan zeigen">📍 ${esc(place)} <span>· auf Karte</span></button>` : (place ? `📍 ${esc(place)}` : '');
         const el = document.createElement('div'); el.className = 'chronicle-item' + (item.important ? ' important' : '');
         if (cat) el.style.setProperty('--cat', cat.color);
         el.innerHTML = `
             <div class="item-actions"><button class="icon-btn" onclick="editChronicle(${item.id})" title="Bearbeiten">✎</button><button class="icon-btn danger" onclick="deleteChronicle(${item.id})" title="Löschen">X</button></div>
             <div class="chronicle-head">${item.important ? '★ ' : ''}${esc(info.label)}${cat ? `<span class="cat-badge">${cat.label}</span>` : ''}</div>
             <div class="chronicle-title">${esc(item.text)}</div>
-            ${item.location ? `<div class="chronicle-meta">📍 ${esc(item.location)}</div>` : ''}
+            ${placeHTML ? `<div class="chronicle-meta">${placeHTML}</div>` : ''}
             ${item.details ? `<div class="chronicle-details">${esc(item.details)}</div>` : ''}
             ${persons.length ? `<div>${persons.map(pid => `<button class="person-chip" onclick="showPerson(${Number(pid)})" title="Akte öffnen">👤 ${esc(npcName(pid))}</button>`).join('')}</div>` : ''}
         `;
@@ -164,8 +189,8 @@ function copyChronicle() {
     entries.forEach(({ item, info }, idx) => {
         if (showDays && (idx === 0 || info.day !== lastDay)) lines.push('', `=== ${info.day !== null ? 'TAG ' + info.day : 'OHNE TAG / VORGESCHICHTE'} ===`);
         lastDay = info.day;
-        const cat = CHRON_CATEGORIES[item.category];
-        lines.push(`${item.important ? '★ ' : ''}[${info.label}] ${item.text}${cat ? ` (${cat.label})` : ''}${item.location ? ` – ${item.location}` : ''}`);
+        const cat = CHRON_CATEGORIES[item.category]; const place = item.location || (chronPin(item) || {}).note;
+        lines.push(`${item.important ? '★ ' : ''}[${info.label}] ${item.text}${cat ? ` (${cat.label})` : ''}${place ? ` – ${place}` : ''}`);
         if (item.details) lines.push('    ' + item.details.replace(/\n/g, '\n    '));
         const names = (item.persons || []).map(npcName).filter(Boolean);
         if (names.length) lines.push('    Beteiligt: ' + names.join(', '));

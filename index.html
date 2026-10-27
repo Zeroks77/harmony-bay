@@ -10,7 +10,7 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
-    <link rel="stylesheet" href="css/style.css?v=2">
+    <link rel="stylesheet" href="css/style.css?v=3">
 </head>
 <body>
 
@@ -114,7 +114,8 @@
                                     <div><label>Freie Zeitangabe:</label><input type="text" id="chronicle-timenote" placeholder="z.B. Vor 3 Jahren"></div>
                                     <div class="span-2"><label>Ereignis / Vorfall:</label><input type="text" id="chronicle-event" required></div>
                                     <div><label>Kategorie:</label><select id="chronicle-category"></select></div>
-                                    <div class="span-3"><label>Ort:</label><input type="text" id="chronicle-location" placeholder="z.B. Leuchtturm, Pier 3"></div>
+                                    <div class="span-2"><label>Ort:</label><input type="text" id="chronicle-location" placeholder="z.B. Leuchtturm, Pier 3"></div>
+                                    <div><label>Pin auf Lageplan:</label><select id="chronicle-pin" onchange="onChronPinChange()"></select></div>
                                     <div class="span-3"><label>Details / Beobachtungen:</label><textarea id="chronicle-details" style="height: 90px;"></textarea></div>
                                     <div class="span-3"><label>Beteiligte Personen:</label><div class="person-picker" id="chronicle-persons"></div></div>
                                 </div>
@@ -164,10 +165,21 @@
 
             <div id="tab-karte" class="tab-content">
                 <h2>// LAGEPLAN HARMONY BAY</h2>
-                <p class="hint">Auf die Karte tippen = Pin setzen · Pin antippen = bearbeiten / löschen
-                    <button class="tool-btn" style="margin-left: 8px;" onclick="toggleMapLabels(this)">Beschriftungen anzeigen</button></p>
-                <div id="map-container" onclick="addPin(event)">
-                    <img id="map-image" src="55349.png" alt="Karte">
+                <div class="map-toolbar">
+                    <span class="zoom-group">
+                        <button class="tool-btn" onclick="zoomMap(-1)" title="Verkleinern">−</button>
+                        <span id="map-zoom-label" class="zoom-label">100%</span>
+                        <button class="tool-btn" onclick="zoomMap(1)" title="Vergrößern">+</button>
+                        <button class="tool-btn" onclick="fitMap()" title="Ganze Karte zeigen">⤢ Ganze Karte</button>
+                    </span>
+                    <button class="tool-btn" onclick="toggleMapLabels(this)">Beschriftungen</button>
+                    <span class="map-legend" id="map-legend"></span>
+                </div>
+                <p class="hint">Auf die Karte tippen = Pin setzen · Pin antippen = Optionen · Legende antippen = Pin-Art ein-/ausblenden · Strg+Mausrad oder zwei Finger = Zoom</p>
+                <div id="map-viewport">
+                    <div id="map-container" onclick="addPin(event)">
+                        <img id="map-image" src="55349.png" alt="Karte" draggable="false">
+                    </div>
                 </div>
             </div>
 
@@ -176,17 +188,19 @@
                     <h2>// VERKNÜPFUNGSANALYSE</h2>
                     <div class="board-actions">
                         <button class="tool-btn" id="link-mode-btn" onclick="setLinkMode(!linkMode)">🧵 Faden spannen</button>
-                        <button class="tool-btn" onclick="addBoardNote()">+ Zettel</button>
+                        <button class="tool-btn" onclick="openAddMenu(this)" title="Zettel, Beweismittel oder Orte anheften">+ Hinzufügen</button>
                         <button class="tool-btn" onclick="arrangeBoard()" title="Alle Karten ohne Überlappung im Raster anordnen">▦ Aufräumen</button>
                         <span class="zoom-group">
                             <button class="tool-btn" onclick="zoomBoard(-1)" title="Verkleinern">−</button>
-                            <span id="zoom-label">100%</span>
+                            <span id="zoom-label" class="zoom-label">100%</span>
                             <button class="tool-btn" onclick="zoomBoard(1)" title="Vergrößern">+</button>
                             <button class="tool-btn" onclick="fitBoard()" title="Alles einpassen">⤢ Einpassen</button>
                         </span>
                         <button class="tool-btn" id="board-fs-btn" onclick="toggleBoardFullscreen()">⛶ Vollbild</button>
+                        <button class="tool-btn" onclick="exportBoardImage()" title="Pinnwand als PNG-Bild herunterladen">📷 Als Bild</button>
                         <button class="tool-btn danger" onclick="clearStrings()">Alle Fäden löschen</button>
                     </div>
+                    <div class="link-legend" id="link-legend"></div>
                     <p class="board-hint">Karte ziehen = verschieben · Karte anklicken = Optionen · Rechtsklick auf zwei Karten oder „Faden spannen“ = verbinden · Faden-Etikett anklicken = beschriften/löschen · Strg+Mausrad = Zoom</p>
                 </div>
                 <div id="board-viewport">
@@ -237,14 +251,14 @@
     <div id="toast"></div>
 
     <!-- Reihenfolge wichtig: core zuerst, app zuletzt (startet die Firebase-Listener) -->
-    <script src="js/core.js?v=2"></script>
-    <script src="js/news.js?v=2"></script>
-    <script src="js/personen.js?v=2"></script>
-    <script src="js/chronik.js?v=2"></script>
-    <script src="js/karte.js?v=2"></script>
-    <script src="js/pinnwand.js?v=2"></script>
-    <script src="js/archiv.js?v=2"></script>
-    <script src="js/system.js?v=2"></script>
-    <script src="js/app.js?v=2"></script>
+    <script src="js/core.js?v=3"></script>
+    <script src="js/news.js?v=3"></script>
+    <script src="js/personen.js?v=3"></script>
+    <script src="js/chronik.js?v=3"></script>
+    <script src="js/karte.js?v=3"></script>
+    <script src="js/pinnwand.js?v=3"></script>
+    <script src="js/archiv.js?v=3"></script>
+    <script src="js/system.js?v=3"></script>
+    <script src="js/app.js?v=3"></script>
 </body>
 </html>

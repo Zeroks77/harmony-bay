@@ -39,6 +39,7 @@ function switchTab(tabId) {
     document.querySelector('.content-area').scrollTop = 0;
     savePref('hb-tab', tabId);
     if(tabId === 'tab-pinnwand') { renderBoard(); }
+    if(tabId === 'tab-karte') { updateMapSize(); }
 }
 function openLightbox(imageUrl) { document.getElementById('lightbox-img').src = imageUrl; document.getElementById('lightbox').style.display = 'flex'; }
 function closeLightbox() { document.getElementById('lightbox').style.display = 'none'; }

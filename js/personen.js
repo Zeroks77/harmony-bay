@@ -42,9 +42,6 @@ function renderNpcs() {
 }
 function showPerson(id) {
     document.getElementById('npc-search').value = ''; renderNpcs();
-    if (document.getElementById('tab-pinnwand').classList.contains('fullscreen')) toggleBoardFullscreen();
-    switchTab('tab-personen');
-    const card = document.getElementById('npc-card-' + id); if (!card) return;
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 1600);
+    exitBoardFullscreen(); switchTab('tab-personen');
+    flashElement(document.getElementById('npc-card-' + id));
 }
