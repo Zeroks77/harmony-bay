@@ -21,7 +21,6 @@ const CELL_W = 180, CELL_H = 230, BOARD_MIN_W = 1600, BOARD_MIN_H = 1000, BOARD_
 // Abstand zwischen Karten, damit Faden-Etiketten dazwischen Platz haben
 const CARD_GAP_X = 60, CARD_GAP_Y = 50;
 const PIN_OFFSET_Y = 12; // Nadel sitzt 12px unter der Oberkante (= Drehpunkt der Karte)
-const KNOT_LENGTH = 26; // so viel Faden ist auf der eigenen Karte sichtbar (am Knoten), der Rest läuft hinter den Karten
 const LONG_PRESS_MS = 300; // Touch: so lange halten, bis eine Karte am Finger hängt (sonst wird gescrollt)
 const TIGHTEN_MS = 750; // neuer Faden: so lange dauert das Straffen
 const NOTE_SEL = '#board-container .board-note:not(.leaving)';
@@ -768,52 +767,60 @@ function clearStrings() {
 
 // =========================================
 // FÄDEN & NADELN
-// Der Faden läuft HINTER fremden Karten durch. Sichtbar auf einer Karte ist nur das kurze Stück am Knoten
-// um die eigene Nadel – so verdecken Fäden keine Gesichter und Namen.
+// Jeder Faden ist mit eigenen kleinen Nadeln am Kartenrand festgesteckt – auf der Seite, die zur anderen Karte zeigt –
+// und läuft wie an einer echten Pinnwand obenauf über den Kork. So liegt er nie quer über Foto oder Namen der eigenen Karte.
 // =========================================
 // Position einer Karte: beim Ziehen die aktuelle Zugposition, sonst offsetLeft (folgt auch Gleit-Animationen)
 function notePos(el) { return el._dragPos || { x: el.offsetLeft, y: el.offsetTop }; }
 function noteRect(el) { const p = notePos(el); return { el, x: p.x, y: p.y, w: el.offsetWidth, h: el.offsetHeight }; }
 function pinAnchor(el) { const p = notePos(el); return { x: p.x + el.offsetWidth / 2, y: p.y + PIN_OFFSET_Y }; }
 function cardRects() { return Array.from(document.querySelectorAll(NOTE_SEL)).map(noteRect); }
+function noteTilt(el) { return el.classList.contains('dragging') || el.classList.contains('lifting') ? 0 : (parseFloat(el.style.getPropertyValue('--rot')) || 0); }
+// Befestigungspunkt eines Fadens am Rand der Karte, in Richtung der anderen Karte
+function edgeAnchor(el, toward, salt) {
+    const r = noteRect(el), cx = r.x + r.w / 2, cy = r.y + r.h / 2, INSET = 9;
+    if (r.w <= 2 * INSET || r.h <= 2 * INSET) return { x: cx, y: r.y + PIN_OFFSET_Y, onMain: true }; // Pinnwand gerade nicht sichtbar (Größe 0)
+    let dx = toward.x - cx, dy = toward.y - cy; if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) dy = 1;
+    const hw = r.w / 2 - INSET, hh = r.h / 2 - INSET;
+    const sideHit = Math.abs(dx) * hh > Math.abs(dy) * hw; // trifft der Strahl den linken/rechten Rand?
+    const s = sideHit ? hw / Math.abs(dx) : hh / Math.abs(dy);
+    let x = cx + dx * s, y = cy + dy * s;
+    const jitter = (salt % 13) - 6; // mehrere Fäden in ähnliche Richtung sitzen nicht auf exakt demselben Punkt
+    if (sideHit) y = Math.max(r.y + INSET, Math.min(r.y + r.h - INSET, y + jitter)); else x = Math.max(r.x + INSET, Math.min(r.x + r.w - INSET, x + jitter));
+    const main = { x: cx, y: r.y + PIN_OFFSET_Y };
+    if (Math.hypot(x - main.x, y - main.y) < 22) return { x: main.x, y: main.y, onMain: true }; // zeigt nach oben: direkt an der Hauptnadel festknoten
+    // Die Karte hängt leicht gedreht an ihrer Nadel – Befestigungspunkt mitdrehen
+    const a = noteTilt(el) * Math.PI / 180, ox = x - main.x, oy = y - main.y;
+    return { x: main.x + ox * Math.cos(a) - oy * Math.sin(a), y: main.y + ox * Math.sin(a) + oy * Math.cos(a), onMain: false };
+}
 // Punkt bzw. Teilstück der quadratischen Fadenkurve
 function quadAt(g, t) { const u = 1 - t; return { x: u * u * g.x1 + 2 * u * t * g.cx + t * t * g.x2, y: u * u * g.y1 + 2 * u * t * g.cy + t * t * g.y2 }; }
-function quadSegment(g, t0, t1) {
-    const p0 = quadAt(g, t0), p1 = quadAt(g, t1), k = (t1 - t0) / 2;
-    const dx = 2 * (1 - t0) * (g.cx - g.x1) + 2 * t0 * (g.x2 - g.cx), dy = 2 * (1 - t0) * (g.cy - g.y1) + 2 * t0 * (g.y2 - g.cy);
-    return { x0: p0.x, y0: p0.y, cx: p0.x + dx * k, cy: p0.y + dy * k, x1: p1.x, y1: p1.y };
-}
-function segPath(s, ox = 0, oy = 0) { return `M${s.x0 + ox},${s.y0 + oy} Q${s.cx + ox},${s.cy + oy} ${s.x1 + ox},${s.y1 + oy}`; }
-// Sichtbare Stücke auf den eigenen Karten: von der Nadel bis zum Kartenrand, höchstens KNOT_LENGTH lang
-function knotSegments(g) {
-    if (g.tA >= g.tB) return [quadSegment(g, 0, 1)]; // Karten überlappen – ganzer Faden sichtbar
-    const len = (Math.hypot(g.cx - g.x1, g.cy - g.y1) + Math.hypot(g.x2 - g.cx, g.y2 - g.cy) + Math.hypot(g.x2 - g.x1, g.y2 - g.y1)) / 2;
-    const knot = Math.min(0.5, KNOT_LENGTH / Math.max(1, len));
-    return [quadSegment(g, 0, Math.min(g.tA, knot)), quadSegment(g, Math.max(g.tB, 1 - knot), 1)];
-}
-// Faden von Nadel zu Nadel, hängt je nach Länge durch. Das Etikett sitzt auf dem sichtbaren Stück zwischen den Karten,
-// möglichst mittig, und rutscht an eine Stelle, an der es keine Karte verdeckt
+function segPath(g, ox = 0, oy = 0) { return `M${g.x1 + ox},${g.y1 + oy} Q${g.cx + ox},${g.cy + oy} ${g.x2 + ox},${g.y2 + oy}`; }
+// Faden von Randnadel zu Randnadel, hängt je nach Länge durch. Das Etikett sitzt möglichst mittig
+// und rutscht entlang des Fadens an eine Stelle, an der es keine Karte verdeckt
 const newLinkTimes = new Map();
 function linkGeometry(link, rects = cardRects()) {
     const a = document.getElementById('note-' + link.start), b = document.getElementById('note-' + link.end); if (!a || !b) return null;
-    const p1 = pinAnchor(a), p2 = pinAnchor(b);
-    let sag = Math.min(110, Math.hypot(p2.x - p1.x, p2.y - p1.y) * 0.16) + 8;
+    const ra = noteRect(a), rb = noteRect(b);
+    const salt = hashStr(link.dbKey);
+    const p1 = edgeAnchor(a, { x: rb.x + rb.w / 2, y: rb.y + rb.h / 2 }, salt), p2 = edgeAnchor(b, { x: ra.x + ra.w / 2, y: ra.y + ra.h / 2 }, salt >> 4);
+    let sag = Math.min(90, Math.hypot(p2.x - p1.x, p2.y - p1.y) * 0.14) + 6;
     const born = newLinkTimes.get(link.dbKey);
     if (born !== undefined) { // neuer Faden hängt erst locker durch und strafft sich dann
         const p = Math.min(1, (performance.now() - born) / TIGHTEN_MS);
         if (p >= 1) newLinkTimes.delete(link.dbKey); else sag *= 1 + 1.6 * Math.pow(1 - p, 3);
     }
-    const g = { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, cx: (p1.x + p2.x) / 2, cy: (p1.y + p2.y) / 2 + sag };
-    // Wo verlässt der Faden die eigenen Karten?
-    const inside = (p, r) => p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h;
-    const ra = noteRect(a), rb = noteRect(b);
-    let tA = 0; while (tA < 1 && inside(quadAt(g, tA), ra)) tA += 0.02;
-    let tB = 1; while (tB > 0 && inside(quadAt(g, tB), rb)) tB -= 0.02;
-    g.tA = Math.min(1, tA); g.tB = Math.max(0, tB);
-    const covers = p => rects.some(r => p.x > r.x - 35 && p.x < r.x + r.w + 35 && p.y > r.y - 12 && p.y < r.y + r.h + 12);
-    const from = g.tA < g.tB ? g.tA : 0, to = g.tA < g.tB ? g.tB : 1;
-    const spot = [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74, 0.18, 0.82].map(t => quadAt(g, from + (to - from) * t)).find(p => !covers(p)) || quadAt(g, (from + to) / 2);
-    g.lx = spot.x; g.ly = spot.y;
+    const g = { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, cx: (p1.x + p2.x) / 2, cy: (p1.y + p2.y) / 2 + sag, onMainA: p1.onMain, onMainB: p2.onMain };
+    // Etikett: möglichst mittig; wenn dort eine Karte liegt, die Stelle entlang des Fadens mit der geringsten Überdeckung
+    const halfW = Math.min(160, 18 + 7.5 * ((link.label || '').trim().length || 2)) / 2, halfH = 12;
+    const overlap = p => rects.reduce((sum, r) => sum + Math.max(0, Math.min(p.x + halfW, r.x + r.w) - Math.max(p.x - halfW, r.x)) * Math.max(0, Math.min(p.y + halfH, r.y + r.h) - Math.max(p.y - halfH, r.y)), 0);
+    let best = null;
+    for (const t of [0.5, 0.44, 0.56, 0.38, 0.62, 0.32, 0.68, 0.26, 0.74, 0.2, 0.8, 0.15, 0.85]) {
+        const p = quadAt(g, t), o = overlap(p);
+        if (!best || o < best.o - 1) best = { p, o };
+        if (o === 0) break;
+    }
+    g.lx = best.p.x; g.ly = best.p.y;
     return g;
 }
 
@@ -823,30 +830,32 @@ const stringEls = new Map(); const pinEls = new Map();
 const SVG_NS = 'http://www.w3.org/2000/svg';
 function svgEl(tag, cls) { const el = document.createElementNS(SVG_NS, tag); if (cls) el.setAttribute('class', cls); return el; }
 function createStringEls(link) {
-    const yarn = () => { const g = svgEl('g', 'yarn-group'); const parts = { shadow: svgEl('path', 'yarn-shadow'), base: svgEl('path', 'yarn'), twist: svgEl('path', 'yarn-twist') }; g.append(parts.shadow, parts.base, parts.twist); return { g, ...parts }; };
-    const els = { under: yarn(), over: yarn(), label: document.createElement('div') };
-    els.label.className = 'string-label';
+    const els = { g: svgEl('g', 'yarn-group'), shadow: svgEl('path', 'yarn-shadow'), base: svgEl('path', 'yarn'), twist: svgEl('path', 'yarn-twist'), label: document.createElement('div'), pinA: document.createElement('div'), pinB: document.createElement('div') };
+    els.g.append(els.shadow, els.base, els.twist);
+    els.label.className = 'string-label'; els.pinA.className = els.pinB.className = 'pushpin small';
     const key = link.dbKey; const current = () => globalLinks.find(l => l.dbKey === key);
     els.label.onclick = e => { const l = current(); if (l) openLinkMenu(l, e); };
     els.label.oncontextmenu = e => { e.preventDefault(); const l = current(); if (l) openLinkMenu(l, e); };
-    els.label.onpointerenter = () => { hoverNodeId = null; els.under.g.classList.add('hl'); els.over.g.classList.add('hl'); };
+    els.label.onpointerenter = () => { hoverNodeId = null; [els.g, els.label].forEach(x => x.classList.add('hl')); };
     els.label.onpointerleave = () => { const l = current(); if (l) setStringState(l, els); };
-    if (newLinkTimes.has(key)) { [els.under.g, els.over.g, els.label].forEach(x => x.classList.add('appear')); setTimeout(() => [els.under.g, els.over.g, els.label].forEach(x => x.classList.remove('appear')), 1000); }
-    document.getElementById('strings-under').appendChild(els.under.g); document.getElementById('strings-over').appendChild(els.over.g);
+    const parts = [els.g, els.label, els.pinA, els.pinB];
+    if (newLinkTimes.has(key)) { parts.forEach(x => x.classList.add('appear')); setTimeout(() => parts.forEach(x => x.classList.remove('appear')), 1000); }
+    document.getElementById('strings-over').appendChild(els.g);
+    document.getElementById('board-pins').append(els.pinA, els.pinB);
     document.getElementById('string-labels-container').appendChild(els.label);
     stringEls.set(key, els);
     return els;
 }
 function removeStringEls(key, els) {
     stringEls.delete(key);
-    const parts = [els.under.g, els.over.g, els.label];
+    const parts = [els.g, els.label, els.pinA, els.pinB];
     parts.forEach(x => x.classList.add('leaving'));
     setTimeout(() => parts.forEach(x => x.remove()), REDUCED_MOTION ? 0 : 320);
 }
 function setStringState(link, els) {
     const dim = !!boardFocus && !(focusVisible.has(String(link.start)) && focusVisible.has(String(link.end)));
     const hl = !dim && ((hoverNodeId !== null && linkTouches(link, hoverNodeId)) || (selectedNodeId !== null && linkTouches(link, selectedNodeId)) || (!!boardFocus && linkTouches(link, boardFocus.id)));
-    [els.under.g, els.over.g, els.label].forEach(x => { x.classList.toggle('dim', dim); x.classList.toggle('hl', hl); });
+    [els.g, els.label, els.pinA, els.pinB].forEach(x => { x.classList.toggle('dim', dim); x.classList.toggle('hl', hl); });
 }
 function updateStringStates() {
     globalLinks.forEach(l => { const els = stringEls.get(l.dbKey); if (els) setStringState(l, els); });
@@ -864,18 +873,19 @@ function drawAllStrings(onlyNodeId = null, rectsOverride = null) {
         if (!g) { if (els) removeStringEls(link.dbKey, els); return; }
         if (!els) els = createStringEls(link);
         const t = linkType(link);
-        // Ganzer Faden unter den Karten, Knoten-Stücke über den eigenen Karten (beide mit Schatten)
-        const full = quadSegment(g, 0, 1), knots = knotSegments(g);
-        els.under.shadow.setAttribute('d', segPath(full, 2, 5)); els.under.base.setAttribute('d', segPath(full)); els.under.twist.setAttribute('d', segPath(full));
-        els.over.shadow.setAttribute('d', knots.map(s => segPath(s, 1.5, 3.5)).join(' ')); els.over.base.setAttribute('d', knots.map(s => segPath(s)).join(' ')); els.over.twist.setAttribute('d', knots.map(s => segPath(s)).join(' '));
-        [els.under.g, els.over.g].forEach(x => { x.style.stroke = t.color; x.style.strokeWidth = t.width; });
+        els.shadow.setAttribute('d', segPath(g, 2, 5)); els.base.setAttribute('d', segPath(g)); els.twist.setAttribute('d', segPath(g));
+        els.g.style.stroke = t.color; els.g.style.strokeWidth = t.width;
+        // kleine Nadeln an den Fadenenden (entfällt, wenn der Faden direkt an der Hauptnadel hängt)
+        [[els.pinA, g.x1, g.y1, g.onMainA], [els.pinB, g.x2, g.y2, g.onMainB]].forEach(([pin, x, y, onMain]) => {
+            pin.style.left = x + 'px'; pin.style.top = y + 'px'; pin.style.setProperty('--pin', t.color); pin.style.display = onMain ? 'none' : '';
+        });
         els.label.style.left = g.lx + 'px'; els.label.style.top = g.ly + 'px';
         els.label.style.borderTopColor = t.color; els.label.style.setProperty('--rot', tiltFor(link.dbKey, 4).toFixed(1) + 'deg');
         const text = (link.label && link.label.trim() !== "") ? link.label : "🔗"; if (els.label.textContent !== text) els.label.textContent = text;
         els.label.title = t.label + " – klicken zum Bearbeiten oder Löschen";
         if (onlyNodeId === null) setStringState(link, els);
     });
-    // Stecknadeln liegen über allem – die Fäden sind darum geknotet
+    // Hauptnadeln der Karten
     const pinsLayer = document.getElementById('board-pins'); const livePins = new Set();
     notes.forEach(n => {
         livePins.add(n.dataset.id);
@@ -922,7 +932,7 @@ function renderBoardCanvas(withImages) {
     const rects = cardRects(); const strings = globalLinks.map(link => ({ link, g: linkGeometry(link, rects) })).filter(s => s.g);
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     notes.forEach(n => { const x = parseFloat(n.style.left), y = parseFloat(n.style.top); minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x + n.offsetWidth); maxY = Math.max(maxY, y + n.offsetHeight); });
-    strings.forEach(({ g }) => { minX = Math.min(minX, g.lx - 80); maxX = Math.max(maxX, g.lx + 80); maxY = Math.max(maxY, g.ly + 20, g.cy); });
+    strings.forEach(({ g }) => { minX = Math.min(minX, g.lx - 80); maxX = Math.max(maxX, g.lx + 80); maxY = Math.max(maxY, g.ly + 20, (g.y1 + g.y2) / 2 + (g.cy - (g.y1 + g.y2) / 2) / 2 + 10); });
     const pad = 50, w = maxX - minX + 2 * pad, h = maxY - minY + 2 * pad;
     const scale = Math.min(2, 8000 / Math.max(w, h));
     const canvas = document.createElement('canvas'); canvas.width = Math.ceil(w * scale); canvas.height = Math.ceil(h * scale);
@@ -932,19 +942,18 @@ function renderBoardCanvas(withImages) {
     let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
     for (let i = 0; i < w * h / 60; i++) { ctx.fillStyle = rnd() < 0.6 ? 'rgba(90,50,20,0.22)' : 'rgba(235,200,150,0.25)'; ctx.fillRect(minX - pad + rnd() * w, minY - pad + rnd() * h, 1 + rnd() * 2, 1 + rnd() * 2); }
 
-    const curve = (s, color, width, dash, ox = 0, oy = 0) => {
+    const curve = (g, color, width, dash, ox = 0, oy = 0) => {
         ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = 'round'; ctx.setLineDash(dash || []);
-        ctx.beginPath(); ctx.moveTo(s.x0 + ox, s.y0 + oy); ctx.quadraticCurveTo(s.cx + ox, s.cy + oy, s.x1 + ox, s.y1 + oy); ctx.stroke(); ctx.restore();
+        ctx.beginPath(); ctx.moveTo(g.x1 + ox, g.y1 + oy); ctx.quadraticCurveTo(g.cx + ox, g.cy + oy, g.x2 + ox, g.y2 + oy); ctx.stroke(); ctx.restore();
     };
-    const yarn = (segs, t, shadowOffset) => {
-        segs.forEach(s => curve(s, 'rgba(20,10,0,0.28)', t.width, null, shadowOffset[0], shadowOffset[1]));
-        segs.forEach(s => curve(s, t.color, t.width));
-        segs.forEach(s => curve(s, 'rgba(255,255,255,0.3)', 1, [2, 3]));
-    };
-    // wie auf der Pinnwand: Fäden hinter den Karten, Knoten-Stücke darüber, dann Nadeln und Etiketten
-    strings.forEach(({ link, g }) => yarn([quadSegment(g, 0, 1)], linkType(link), [2, 5]));
+    // wie auf der Pinnwand: Karten, darüber die Fäden mit ihren Randnadeln, dann Hauptnadeln und Etiketten
     notes.forEach(n => drawNoteOnCanvas(ctx, n, withImages));
-    strings.forEach(({ link, g }) => yarn(knotSegments(g), linkType(link), [1.5, 3.5]));
+    strings.forEach(({ link, g }) => {
+        const t = linkType(link);
+        curve(g, 'rgba(20,10,0,0.28)', t.width, null, 2, 5); curve(g, t.color, t.width); curve(g, 'rgba(255,255,255,0.3)', 1, [2, 3]);
+        if (!g.onMainA) drawPushpinOnCanvas(ctx, { x: g.x1, y: g.y1 }, t.color, 5.5);
+        if (!g.onMainB) drawPushpinOnCanvas(ctx, { x: g.x2, y: g.y2 }, t.color, 5.5);
+    });
     notes.forEach(n => drawPushpinOnCanvas(ctx, pinAnchor(n), n.dataset.pin || PUSHPIN_COLORS.npc));
     strings.forEach(({ link, g }) => {
         const text = link.label && link.label.trim() !== '' ? link.label : '🔗';
@@ -958,13 +967,14 @@ function renderBoardCanvas(withImages) {
     });
     return canvas;
 }
-function drawPushpinOnCanvas(ctx, a, color) {
+function drawPushpinOnCanvas(ctx, a, color, r = 8) {
+    const k = r / 8;
     ctx.save();
-    ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(a.x + 2, a.y + 3); ctx.lineTo(a.x + 7, a.y + 11); ctx.stroke(); // Schatten der Nadel
-    ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 3; ctx.shadowOffsetX = 3; ctx.shadowOffsetY = 4;
-    const grad = ctx.createRadialGradient(a.x - 3, a.y - 3, 1, a.x, a.y, 8); grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.25, color); grad.addColorStop(1, color);
-    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(a.x, a.y, 8, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowColor = 'transparent'; ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.arc(a.x + 1.5, a.y + 1.5, 8, 0.1 * Math.PI, 0.9 * Math.PI); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 2 * k; ctx.beginPath(); ctx.moveTo(a.x + 2 * k, a.y + 3 * k); ctx.lineTo(a.x + 7 * k, a.y + 11 * k); ctx.stroke(); // Schatten der Nadel
+    ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 3 * k; ctx.shadowOffsetX = 3 * k; ctx.shadowOffsetY = 4 * k;
+    const grad = ctx.createRadialGradient(a.x - 3 * k, a.y - 3 * k, 1, a.x, a.y, r); grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.25, color); grad.addColorStop(1, color);
+    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(a.x, a.y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowColor = 'transparent'; ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.arc(a.x + 1.5 * k, a.y + 1.5 * k, r, 0.1 * Math.PI, 0.9 * Math.PI); ctx.fill();
     ctx.restore();
 }
 // Zeichnet eine Karte anhand ihres tatsächlichen Layouts im DOM nach (Farben, Text, Bilder, Neigung, Stempel)

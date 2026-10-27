@@ -224,9 +224,8 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Geo
 .board-note.pin-note { background-color: #f4ecd6; border-top: 8px solid #e53935; }
 
 /* Wollfäden liegen über den Karten und sind um die Nadeln geknotet */
-/* Zwei Faden-Ebenen: der ganze Faden HINTER den Karten, darüber nur die kurzen Knoten-Stücke an den eigenen Nadeln */
+/* Fäden liegen obenauf über Kork und Karten, festgesteckt mit kleinen Nadeln am Kartenrand */
 .strings-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
-#strings-under { z-index: 15; }
 #strings-over { z-index: 22; }
 /* Farbe und Stärke kommen pro Fadenart aus LINK_TYPES (js/pinnwand.js) */
 .yarn-group { transition: opacity 0.35s ease, filter 0.2s ease; }
@@ -242,6 +241,11 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Geo
 #board-pins { position: absolute; inset: 0; pointer-events: none; z-index: 23; }
 .pushpin { --pin: #d32f2f; position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: radial-gradient(circle at 33% 30%, rgba(255,255,255,0.95) 0 1.5px, rgba(255,255,255,0.35) 3px, transparent 5px), radial-gradient(circle at 45% 40%, transparent 35%, rgba(0,0,0,0.38) 100%), var(--pin); box-shadow: 2px 4px 3px rgba(20,10,0,0.45); transition: opacity 0.35s ease; }
 .pushpin.dim { opacity: 0.25; }
+/* kleine Nadel, mit der ein Faden am Kartenrand festgesteckt ist (Farbe = Fadenart) */
+.pushpin.small { width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; box-shadow: 1px 3px 2px rgba(20,10,0,0.45); }
+.pushpin.small::after { left: 7px; top: 8px; height: 6px; }
+.pushpin.small.dim { opacity: 0.12; }
+.pushpin.small.appear { animation: pin-drop 0.45s 0.15s cubic-bezier(0.34, 1.3, 0.64, 1) both; }
 .pushpin.leaving { opacity: 0; }
 /* Nadel wird eingesteckt (neue Karte bzw. nach dem Loslassen) */
 .pushpin.drop { animation: pin-drop 0.45s cubic-bezier(0.34, 1.3, 0.64, 1) both; }
