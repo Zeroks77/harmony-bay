@@ -48,6 +48,7 @@ document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     hideMenu(); closeLightbox();
     if (selectedNodeId !== null || linkMode) setLinkMode(false);
+    else if (boardFocus) clearFocus();
     else if (document.getElementById('tab-pinnwand').classList.contains('fullscreen')) toggleBoardFullscreen();
     if (document.getElementById('dos-terminal').style.display === 'block') closeDosTerminal();
 });

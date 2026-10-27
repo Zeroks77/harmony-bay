@@ -28,8 +28,15 @@ document.addEventListener('error', e => {
 function loadPref(key, fallback) { try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); } catch (e) { return fallback; } }
 function savePref(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
 
+// Kurzer Hinweis unten; optional mit Knopf (z.B. „Rückgängig“), dann bleibt er etwas länger stehen
 let toastTimer = null;
-function showToast(msg) { const t = document.getElementById('toast'); t.innerText = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2200); }
+function showToast(msg, actionLabel = null, onAction = null) {
+    const t = document.getElementById('toast'); t.innerHTML = '';
+    const text = document.createElement('span'); text.textContent = msg; t.appendChild(text);
+    if (actionLabel) { const b = document.createElement('button'); b.textContent = actionLabel; b.onclick = () => { t.classList.remove('show'); onAction(); }; t.appendChild(b); }
+    t.classList.toggle('has-action', !!actionLabel); t.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), actionLabel ? 6000 : 2200);
+}
 
 // Kleines Auswahlmenü (funktioniert mit Maus und Touch)
 function showMenu(x, y, title, items) {

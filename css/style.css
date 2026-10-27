@@ -84,6 +84,8 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Geo
 .tool-btn:hover, .tool-btn.active { background: #00ff41; color: #111; }
 .tool-btn.danger { color: #ff5252; border-color: #ff5252; }
 .tool-btn.danger:hover { background: #ff5252; color: #fff; }
+.tool-btn:disabled { opacity: 0.35; cursor: default; }
+.tool-btn:disabled:hover { background: #000; color: #00ff41; }
 
 /* Bearbeiten/Löschen-Knöpfe auf Karten */
 .item-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; z-index: 2; }
@@ -178,16 +180,30 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Geo
 #board-sizer { position: relative; }
 #board-container { position: absolute; top: 0; left: 0; transform-origin: 0 0; background-color: #b98b5e; } /* Korkstruktur erzeugt corkTexture() in js/pinnwand.js */
 #board-container.link-mode .board-note { cursor: crosshair; }
-#board-container.arranging .board-note { transition: left 0.7s cubic-bezier(0.25, 0.8, 0.25, 1), top 0.7s cubic-bezier(0.25, 0.8, 0.25, 1); }
 
 /* Karten hängen leicht schief an ihrer Nadel (Drehpunkt = Nadel) */
-.board-note { --rot: 0deg; position: absolute; width: 140px; box-sizing: border-box; padding: 10px 10px 12px; background-color: #fbfaf4; color: #1d1d1d; font-family: 'Special Elite', 'Courier New', monospace; font-size: 0.85em; text-align: center; box-shadow: 0 1px 1px rgba(0,0,0,0.2), 2px 7px 12px rgba(30,15,0,0.45); transform: rotate(var(--rot)); transform-origin: 50% 12px; cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; z-index: 20; transition: box-shadow 0.2s, transform 0.2s; }
+/* Drehen, Skalieren und Verschieben laufen über eigene CSS-Eigenschaften (rotate/scale/translate), damit sie unabhängig animiert werden können.
+   --glide (Dauer) und --glide-delay setzt js/pinnwand.js, wenn eine Karte an einen neuen Platz gleiten soll. */
+.board-note { --rot: 0deg; --glide: 0s; --glide-delay: 0s; position: absolute; width: 140px; box-sizing: border-box; padding: 10px 10px 12px; background-color: #fbfaf4; color: #1d1d1d; font-family: 'Special Elite', 'Courier New', monospace; font-size: 0.85em; text-align: center; box-shadow: 0 1px 1px rgba(0,0,0,0.2), 2px 7px 12px rgba(30,15,0,0.45); rotate: var(--rot); transform-origin: 50% 12px; cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: pan-x pan-y; z-index: 20; transition: box-shadow 0.25s ease, scale 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), rotate 0.35s ease, opacity 0.35s ease, filter 0.35s ease, left var(--glide) cubic-bezier(0.22, 0.8, 0.28, 1) var(--glide-delay), top var(--glide) cubic-bezier(0.22, 0.8, 0.28, 1) var(--glide-delay); }
+@media (hover: hover) { .board-note:hover { scale: 1.025; box-shadow: 0 1px 1px rgba(0,0,0,0.2), 4px 11px 16px rgba(30,15,0,0.5); z-index: 21; } }
 .board-note img { display: block; width: 100%; height: 115px; object-fit: cover; margin: 6px 0 8px; pointer-events: none; filter: sepia(25%) contrast(1.05) saturate(0.85); -webkit-user-drag: none; }
 .board-note strong { display: block; font-family: 'Caveat', 'Segoe Print', cursive; font-size: 1.5em; font-weight: 700; line-height: 1.05; word-break: break-word; hyphens: auto; -webkit-hyphens: auto; }
 .board-note small { display: block; color: #5a5348; margin-top: 4px; font-size: 0.78em; line-height: 1.25; word-break: break-word; hyphens: auto; -webkit-hyphens: auto; }
-/* Beim Ziehen folgt die Karte per Transform (GPU, ohne Verzögerung); --dx/--dy setzt js/pinnwand.js */
-.board-note.dragging { cursor: grabbing; z-index: 30; transform: translate(var(--dx, 0px), var(--dy, 0px)) rotate(0deg) scale(1.05); transition: box-shadow 0.2s; will-change: transform; box-shadow: 0 2px 3px rgba(0,0,0,0.2), 12px 22px 26px rgba(30,15,0,0.5); }
+/* Am Handy: nach kurzem Halten hebt sich die Karte an – dann hängt sie am Finger */
+.board-note.lifting { scale: 1.07; rotate: 0deg; z-index: 30; box-shadow: 0 2px 3px rgba(0,0,0,0.2), 10px 20px 24px rgba(30,15,0,0.5); }
+/* Beim Ziehen folgt die Karte per translate (GPU, ohne Verzögerung); --dx/--dy setzt js/pinnwand.js */
+.board-note.dragging { cursor: grabbing; z-index: 30; translate: var(--dx, 0px) var(--dy, 0px); rotate: 0deg; scale: 1.06; transition: box-shadow 0.2s ease, scale 0.18s ease, rotate 0.18s ease; will-change: translate; box-shadow: 0 2px 3px rgba(0,0,0,0.2), 12px 22px 26px rgba(30,15,0,0.5); }
 .board-note.selected-for-link { box-shadow: 0 0 0 3px #e53935, 0 0 22px 6px rgba(229,57,53,0.75); }
+/* Fokus: das Netz einer Karte bleibt hell, alles andere tritt zurück */
+.board-note.focused { z-index: 21; box-shadow: 0 0 0 3px #ffd54f, 0 0 26px 6px rgba(255,213,79,0.55), 2px 7px 12px rgba(30,15,0,0.45); }
+.board-note.dimmed { opacity: 0.28; filter: saturate(0.3) brightness(0.9); }
+/* Neue Karte fällt sanft auf die Wand, entfernte Karte verschwindet */
+.board-note.appear { animation: card-appear 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+@keyframes card-appear { 0% { opacity: 0; scale: 0.55; translate: 0 -34px; } 55% { opacity: 1; } 100% { opacity: 1; scale: 1; translate: 0 0; } }
+.board-note.leaving { opacity: 0; scale: 0.75; pointer-events: none; transition: opacity 0.25s ease, scale 0.25s ease; }
+/* Gefundene Karte pulsiert kurz */
+.board-note.pulse { animation: card-pulse 1.1s ease-in-out 2; }
+@keyframes card-pulse { 0%, 100% { box-shadow: 0 1px 1px rgba(0,0,0,0.2), 2px 7px 12px rgba(30,15,0,0.45); } 50% { box-shadow: 0 0 0 4px #ffd54f, 0 0 32px 10px rgba(255,213,79,0.8); } }
 /* Polaroid (Person mit Foto) */
 .board-note.polaroid-note { padding-bottom: 16px; }
 /* Karteikarte (Person ohne Foto) */
@@ -208,19 +224,43 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Geo
 .board-note.pin-note { background-color: #f4ecd6; border-top: 8px solid #e53935; }
 
 /* Wollfäden liegen über den Karten und sind um die Nadeln geknotet */
-#strings-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 22; overflow: visible; }
+/* Zwei Faden-Ebenen: der ganze Faden HINTER den Karten, darüber nur die kurzen Knoten-Stücke an den eigenen Nadeln */
+.strings-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+#strings-under { z-index: 15; }
+#strings-over { z-index: 22; }
 /* Farbe und Stärke kommen pro Fadenart aus LINK_TYPES (js/pinnwand.js) */
+.yarn-group { transition: opacity 0.35s ease, filter 0.2s ease; }
+.yarn-group.dim { opacity: 0.1; }
+.yarn-group.hl { filter: drop-shadow(0 0 3px rgba(255,248,220,0.95)); }
+.yarn-group.hl .yarn { stroke-width: 4.5px; }
+.yarn-group.appear { animation: fade-in 0.35s ease both; }
+.yarn-group.leaving { opacity: 0; }
 .yarn { fill: none; stroke-linecap: round; }
-.yarn.active { stroke-opacity: 0.9; }
 .yarn-shadow { fill: none; stroke: rgba(20,10,0,0.28); stroke-linecap: round; }
 .yarn-twist { fill: none; stroke: rgba(255,255,255,0.3); stroke-width: 1; stroke-dasharray: 2 3; stroke-linecap: round; }
 /* Stecknadeln mit glänzendem Kopf und Schatten der Nadel */
 #board-pins { position: absolute; inset: 0; pointer-events: none; z-index: 23; }
-.pushpin { --pin: #d32f2f; position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: radial-gradient(circle at 33% 30%, rgba(255,255,255,0.95) 0 1.5px, rgba(255,255,255,0.35) 3px, transparent 5px), radial-gradient(circle at 45% 40%, transparent 35%, rgba(0,0,0,0.38) 100%), var(--pin); box-shadow: 2px 4px 3px rgba(20,10,0,0.45); }
+.pushpin { --pin: #d32f2f; position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: radial-gradient(circle at 33% 30%, rgba(255,255,255,0.95) 0 1.5px, rgba(255,255,255,0.35) 3px, transparent 5px), radial-gradient(circle at 45% 40%, transparent 35%, rgba(0,0,0,0.38) 100%), var(--pin); box-shadow: 2px 4px 3px rgba(20,10,0,0.45); transition: opacity 0.35s ease; }
+.pushpin.dim { opacity: 0.25; }
+.pushpin.leaving { opacity: 0; }
+/* Nadel wird eingesteckt (neue Karte bzw. nach dem Loslassen) */
+.pushpin.drop { animation: pin-drop 0.45s cubic-bezier(0.34, 1.3, 0.64, 1) both; }
+@keyframes pin-drop { 0% { opacity: 0; translate: 10px -24px; scale: 1.6; } 65% { opacity: 1; translate: 0 2px; scale: 0.92; } 100% { translate: 0 0; scale: 1; } }
 .pushpin::after { content: ''; position: absolute; left: 10px; top: 12px; width: 2px; height: 9px; border-radius: 1px; background: linear-gradient(rgba(20,10,0,0.4), transparent); transform: rotate(-38deg); transform-origin: top; }
 /* Faden-Etiketten als Papierschildchen mit farbigem Klebestreifen; über den Karten, damit sie lesbar und klickbar bleiben */
-.string-label { --rot: 0deg; position: absolute; background: #fbf3dc; color: #2a2a2a; padding: 1px 9px 2px; border-top: 3px solid #c62828; box-shadow: 1px 3px 5px rgba(30,15,0,0.45); font-family: 'Caveat', 'Segoe Print', cursive; font-size: 1.1em; font-weight: 600; line-height: 1.15; transform: translate(-50%, -50%) rotate(var(--rot)); z-index: 25; cursor: pointer; user-select: none; transition: background 0.2s; max-width: 160px; text-align: center; }
-.string-label:hover { background: #ffe3e3; }
+.string-label { --rot: 0deg; position: absolute; background: #fbf3dc; color: #2a2a2a; padding: 1px 9px 2px; border-top: 3px solid #c62828; box-shadow: 1px 3px 5px rgba(30,15,0,0.45); font-family: 'Caveat', 'Segoe Print', cursive; font-size: 1.1em; font-weight: 600; line-height: 1.15; transform: translate(-50%, -50%) rotate(var(--rot)); z-index: 25; cursor: pointer; user-select: none; transition: background 0.2s ease, opacity 0.35s ease, scale 0.2s ease; max-width: 160px; text-align: center; }
+.string-label:hover, .string-label.hl { background: #fff; scale: 1.08; }
+.string-label.dim { opacity: 0.12; pointer-events: none; }
+.string-label.leaving { opacity: 0; }
+.string-label.appear { animation: label-in 0.45s 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+@keyframes label-in { from { opacity: 0; scale: 0.4; } }
+@keyframes fade-in { from { opacity: 0; } }
+/* Suche & Fokus-Leiste über der Pinnwand */
+.board-search { background: #000; color: #00ff41; border: 1px solid #00ff41; padding: 6px 8px; font-family: inherit; font-size: 0.85em; width: 220px; max-width: 100%; box-sizing: border-box; }
+.focus-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; padding: 6px 10px; border: 1px solid #ffd54f; color: #ffd54f; background: rgba(255,213,79,0.08); font-size: 0.85em; animation: fade-in 0.25s ease; }
+.focus-bar[hidden] { display: none; }
+.focus-bar .tool-btn { color: #ffd54f; border-color: #ffd54f; }
+.focus-bar .tool-btn:hover { background: #ffd54f; color: #111; }
 
 /* Handouts */
 #handout-list, #news-backend-list { display: flex; flex-direction: column; gap: 20px; position: relative; z-index: 10; }
@@ -236,15 +276,18 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Geo
 .close-lightbox { position: absolute; top: 20px; right: 40px; color: #fff; font-size: 50px; cursor: pointer; user-select: none; }
 
 /* Kontextmenü & Hinweise */
-#ctx-menu { display: none; position: fixed; z-index: 6000; background: #0a0a0a; border: 1px solid #00ff41; box-shadow: 3px 3px 0 #00ff41; font-family: 'Courier New', Courier, monospace; min-width: 200px; max-width: 280px; max-height: 70vh; overflow-y: auto; }
+#ctx-menu { display: none; position: fixed; z-index: 6000; background: #0a0a0a; border: 1px solid #00ff41; box-shadow: 3px 3px 0 #00ff41; font-family: 'Courier New', Courier, monospace; min-width: 200px; max-width: 280px; max-height: 70vh; overflow-y: auto; transform-origin: top left; animation: menu-in 0.14s ease-out; }
+@keyframes menu-in { from { opacity: 0; transform: scale(0.94) translateY(-4px); } }
 #ctx-menu .swatch { display: inline-block; width: 12px; height: 12px; border: 1px solid #fff; margin-right: 8px; vertical-align: -1px; }
 #ctx-menu .menu-title { padding: 8px 12px; color: #fff; border-bottom: 1px dashed #00ff41; font-weight: bold; white-space: pre-wrap; word-break: break-word; }
 #ctx-menu button { display: block; width: 100%; text-align: left; background: none; border: none; color: #00ff41; padding: 10px 12px; font-family: inherit; font-size: 1em; cursor: pointer; }
 #ctx-menu button:hover { background: #00ff41; color: #111; }
 #ctx-menu button.danger { color: #ff5252; }
 #ctx-menu button.danger:hover { background: #ff5252; color: #fff; }
-#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #000; color: #00ff41; border: 1px solid #00ff41; padding: 8px 16px; font-family: 'Courier New', Courier, monospace; z-index: 7000; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
-#toast.show { opacity: 1; }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 16px); display: flex; align-items: center; gap: 12px; max-width: calc(100vw - 32px); box-sizing: border-box; background: #000; color: #00ff41; border: 1px solid #00ff41; padding: 8px 16px; font-family: 'Courier New', Courier, monospace; z-index: 7000; opacity: 0; pointer-events: none; transition: opacity 0.25s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+#toast.show.has-action { pointer-events: auto; }
+#toast button { background: #00ff41; color: #111; border: none; font-family: inherit; font-weight: bold; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
 
 /* Glitch Animation */
 .glitch-effect { animation: glitch-skew 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) both infinite; background-color: red !important; }
@@ -280,10 +323,15 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Geo
     .handout-card { padding: 15px; }
     .board-hint, #tab-karte .hint { display: none; }
     .link-legend { display: none; } /* Farben stehen im Auswahlmenü beim Faden spannen */
+    .board-search { font-size: 16px; width: 100%; }
     .board-actions .tool-btn, .map-toolbar .tool-btn, .legend-chip { font-size: 0.72rem; padding: 7px 8px; }
     .board-toolbar h2, #tab-karte h2 { margin: 0 0 8px 0; }
     #map-viewport { min-height: 55vh; }
     #board-viewport { min-height: 60vh; border-width: 8px; }
     .tool-btn { padding: 8px 10px; }
     .close-lightbox { right: 20px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .board-note, .pushpin, .yarn-group, .string-label, #toast, #ctx-menu, .focus-bar { animation: none !important; transition: none !important; }
 }

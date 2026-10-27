@@ -21,8 +21,16 @@ const CELL_W = 180, CELL_H = 230, BOARD_MIN_W = 1600, BOARD_MIN_H = 1000, BOARD_
 // Abstand zwischen Karten, damit Faden-Etiketten dazwischen Platz haben
 const CARD_GAP_X = 60, CARD_GAP_Y = 50;
 const PIN_OFFSET_Y = 12; // Nadel sitzt 12px unter der Oberkante (= Drehpunkt der Karte)
+const KNOT_LENGTH = 26; // so viel Faden ist auf der eigenen Karte sichtbar (am Knoten), der Rest läuft hinter den Karten
+const LONG_PRESS_MS = 300; // Touch: so lange halten, bis eine Karte am Finger hängt (sonst wird gescrollt)
+const TIGHTEN_MS = 750; // neuer Faden: so lange dauert das Straffen
+const NOTE_SEL = '#board-container .board-note:not(.leaving)';
+const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 let selectedNodeId = null; let linkMode = false; let currentDragElement = null; let dragState = null;
 let boardZoom = loadPref('hb-board-zoom', 1); let boardW = BOARD_MIN_W; let boardH = BOARD_MIN_H;
+let boardLoaded = false; // erst danach werden neue Karten/Nadeln animiert eingeblendet (nicht beim ersten Laden)
+let boardFocus = null; let focusVisible = new Set(); // Fokus auf das Netz einer Karte
+let hoverNodeId = null; let lastPointerType = 'mouse';
 
 function initPinnwand() {
     renderLinkLegend();
@@ -31,14 +39,32 @@ function initPinnwand() {
         globalPositions = snap.val() || {};
         // Während eine Karte gezogen wird, nur die anderen Karten nachziehen – kein kompletter Neuaufbau (sonst ruckelt es)
         if (dragState && dragState.moved) applyPositionsLight(); else renderBoard();
+        if (!boardLoaded) setTimeout(() => { boardLoaded = true; }, 1500);
     });
     db.ref('boardNotes').on('value', snap => { globalBoardNotes = Object.values(snap.val() || {}); renderBoard(); });
-    db.ref('links').on('value', snap => { const data = snap.val() || {}; globalLinks = Object.keys(data).map(key => ({...data[key], dbKey: key})); drawAllStrings(); });
-    attachZoomGestures(document.getElementById('board-viewport'), () => boardZoom, setBoardZoom);
+    let knownLinks = null;
+    db.ref('links').on('value', snap => {
+        const data = snap.val() || {};
+        globalLinks = Object.keys(data).map(key => ({...data[key], dbKey: key}));
+        if (knownLinks && !REDUCED_MOTION) globalLinks.forEach(l => { if (!knownLinks.has(l.dbKey)) newLinkTimes.set(l.dbKey, performance.now()); });
+        knownLinks = new Set(globalLinks.map(l => l.dbKey));
+        if (boardFocus) computeFocusSet();
+        drawAllStrings(); if (newLinkTimes.size) startStringFollow(TIGHTEN_MS + 50);
+    });
+    const vp = document.getElementById('board-viewport');
+    attachZoomGestures(vp, () => boardZoom, setBoardZoom);
+    vp.addEventListener('touchstart', e => { if (e.touches.length > 1) cancelPendingDrag(); }, { passive: true }); // zwei Finger = Zoom, nicht Ziehen
+    document.getElementById('board-container').addEventListener('click', e => { if (e.target.id === 'board-container' && boardFocus) clearFocus(); });
+    document.addEventListener('keydown', e => {
+        const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !typing && document.getElementById('tab-pinnwand').classList.contains('active-tab')) { e.preventDefault(); undoLast(); }
+    });
     window.addEventListener('resize', () => { if (document.getElementById('tab-pinnwand').classList.contains('active-tab')) { updateBoardSize(); drawAllStrings(); } });
+    updateUndoButton();
 }
 
 function linkType(link) { return LINK_TYPES[link.type] || LINK_TYPES.unklar; }
+function linkTouches(link, id) { return String(link.start) === String(id) || String(link.end) === String(id); }
 function renderLinkLegend() {
     document.getElementById('link-legend').innerHTML = Object.values(LINK_TYPES).map(t =>
         `<span class="legend-line"><svg width="26" height="8"><line x1="1" y1="4" x2="25" y2="4" stroke="${t.color}" stroke-width="${t.width}" stroke-linecap="round"/></svg>${t.label}</span>`).join('');
@@ -99,7 +125,7 @@ function findVisibleFreeSpot() {
 // Alle Datenbank-Änderungen, die beim Entfernen einer Karte anfallen (Position + Fäden)
 function boardNodeCleanup(id) {
     const updates = { ['positions/' + id]: null };
-    globalLinks.filter(l => Number(l.start) === Number(id) || Number(l.end) === Number(id)).forEach(l => { updates['links/' + l.dbKey] = null; });
+    globalLinks.filter(l => linkTouches(l, id)).forEach(l => { updates['links/' + l.dbKey] = null; });
     return updates;
 }
 // Entfernt alle Pinnwand-Karten, die auf ein gelöschtes Beweismittel bzw. einen gelöschten Pin zeigen
@@ -122,18 +148,64 @@ function nodeTitle(id) {
     return { npc: () => node.data.name, zettel: () => node.data.text, handout: () => node.ref.title, pin: () => node.ref.note }[node.kind]();
 }
 
+// =========================================
+// RÜCKGÄNGIG: jede Aktion merkt sich die Datenbank-Änderungen, die sie wieder aufheben
+// =========================================
+const undoStack = [];
+function pushUndo(label, revert, toast = true) {
+    undoStack.push({ label, revert }); if (undoStack.length > 30) undoStack.shift();
+    updateUndoButton();
+    if (toast) showToast(label, 'Rückgängig', undoLast);
+}
+function undoLast() {
+    const step = undoStack.pop(); updateUndoButton();
+    if (!step) { showToast('Nichts mehr rückgängig zu machen'); return; }
+    db.ref().update(step.revert);
+    showToast('Rückgängig: ' + step.label);
+}
+function updateUndoButton() {
+    const b = document.getElementById('undo-btn'); if (!b) return;
+    b.disabled = undoStack.length === 0;
+    b.title = undoStack.length ? `Rückgängig: ${undoStack[undoStack.length - 1].label} (Strg+Z)` : 'Nichts rückgängig zu machen';
+}
+function linkData(link) { const { dbKey, ...data } = link; return data; }
+// Alles, was zum Wiederherstellen einer Karte nötig ist (Karte, Position, Fäden)
+function cardSnapshot(id) {
+    const snap = { ['positions/' + id]: globalPositions[id] || null };
+    const note = globalBoardNotes.find(n => n.id === Number(id)); if (note) snap['boardNotes/' + id] = note;
+    globalLinks.filter(l => linkTouches(l, id)).forEach(l => { snap['links/' + l.dbKey] = linkData(l); });
+    return snap;
+}
+function removeCardFromBoard(id, label) {
+    const revert = cardSnapshot(id);
+    db.ref().update({ ['boardNotes/' + id]: null, ...boardNodeCleanup(id) });
+    pushUndo(label, revert);
+}
+
+// =========================================
+// KARTEN ZEICHNEN
+// =========================================
 function renderBoard() {
     const container = document.getElementById('board-container');
     const nodes = getBoardNodes();
+    if (boardFocus && !nodes.some(n => n.id === boardFocus.id)) { boardFocus = null; focusVisible = new Set(); renderFocusBar(); }
     nodes.forEach(node => {
-        let note = document.getElementById('note-' + node.id);
-        if(!note) {
+        let note = document.getElementById('note-' + node.id); let created = false;
+        if (note && note._leaveTimer) { clearTimeout(note._leaveTimer); note._leaveTimer = 0; } // kam per Rückgängig zurück
+        if (!note) {
+            created = true;
             note = document.createElement('div'); note.id = 'note-' + node.id; note.dataset.id = node.id;
             note.addEventListener('pointerdown', onNotePointerDown);
             note.addEventListener('pointermove', onNotePointerMove);
             note.addEventListener('pointerup', onNotePointerUp);
             note.addEventListener('pointercancel', onNotePointerUp);
-            note.oncontextmenu = function(e) { e.preventDefault(); if (dragState) dragState.cancelTap = true; handleLinkSelection(node.id, e); }; // Long-Press auf Android löst auch contextmenu aus
+            // Touch: Scrollen erst blockieren, wenn die Karte nach langem Drücken am Finger hängt
+            note.addEventListener('touchmove', e => { if (dragState && dragState.note === note && dragState.armed) e.preventDefault(); }, { passive: false });
+            note.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse' && !dragState) { hoverNodeId = node.id; updateStringStates(); } });
+            note.addEventListener('pointerleave', e => { if (hoverNodeId === node.id) { hoverNodeId = null; updateStringStates(); } });
+            // Rechtsklick (Maus) = Faden spannen; das Long-Press-contextmenu auf Android ignorieren wir, dafür gibt es das Menü
+            note.oncontextmenu = function(e) { e.preventDefault(); if (lastPointerType !== 'mouse') return; if (dragState) dragState.cancelTap = true; handleLinkSelection(node.id, e); };
+            if (boardLoaded && !REDUCED_MOTION) note._appearUntil = performance.now() + 650;
             container.appendChild(note);
         }
         let newHTML, cls, stamp = null, pin = PUSHPIN_COLORS[node.kind];
@@ -158,7 +230,7 @@ function renderBoard() {
             note.style.backgroundColor = NOTE_COLORS[node.data.color || 0] || NOTE_COLORS[0];
         }
         if (note.dataset.html !== newHTML) { note.innerHTML = newHTML; note.dataset.html = newHTML; }
-        note.className = cls + (note === currentDragElement ? ' dragging' : '') + (selectedNodeId === node.id ? ' selected-for-link' : '');
+        note.className = cls + stateClasses(note, node.id);
         note.style.setProperty('--rot', tiltFor(node.id, node.kind === 'zettel' ? 4 : 3).toFixed(2) + 'deg');
         note.dataset.pin = pin;
         if (stamp) note.dataset.stamp = stamp; else delete note.dataset.stamp;
@@ -166,12 +238,57 @@ function renderBoard() {
         if(currentDragElement !== note) {
             let pos = globalPositions[node.id];
             if (!pos) { pos = findFreeSpot(); globalPositions[node.id] = pos; } // nur lokal, wird beim ersten Verschieben gespeichert
-            note.style.left = pos.x + 'px'; note.style.top = pos.y + 'px';
+            placeNote(note, pos.x, pos.y, !created); // Änderungen (z.B. von anderen Spielern) gleiten statt zu springen
         }
     });
-    Array.from(container.querySelectorAll('.board-note')).forEach(note => { if(!nodes.some(n => String(n.id) === note.dataset.id)) note.remove(); });
+    container.querySelectorAll('.board-note').forEach(note => { if (!note._leaveTimer && !note.classList.contains('leaving') && !nodes.some(n => String(n.id) === note.dataset.id)) leaveNote(note); });
     updateBoardSize();
     drawAllStrings();
+    updateSearchList();
+}
+// Zustände, die beim Neuzeichnen der Klassen erhalten bleiben müssen
+function stateClasses(note, id) {
+    const now = performance.now(); let c = '';
+    if (note === currentDragElement) c += ' dragging';
+    if (dragState && dragState.note === note && dragState.armed && !dragState.moved) c += ' lifting';
+    if (selectedNodeId === id) c += ' selected-for-link';
+    if (note._appearUntil > now) c += ' appear';
+    if (note._pulseUntil > now) c += ' pulse';
+    if (boardFocus) c += boardFocus.id === id ? ' focused' : (focusVisible.has(String(id)) ? '' : ' dimmed');
+    return c;
+}
+function leaveNote(note) {
+    note.classList.add('leaving');
+    note._leaveTimer = setTimeout(() => { note.remove(); drawAllStrings(); }, REDUCED_MOTION ? 0 : 280);
+}
+// Setzt die Position einer Karte; mit animate gleitet sie dorthin (Dauer je nach Strecke) und die Fäden laufen mit
+function placeNote(note, x, y, animate = true, duration = null, delay = 0) {
+    const px = parseFloat(note.style.left), py = parseFloat(note.style.top);
+    if (px === x && py === y) return;
+    if (animate && !REDUCED_MOTION && !isNaN(px) && note.offsetParent) {
+        const d = duration ?? (Math.hypot(x - px, y - py) > 260 ? 0.7 : 0.25);
+        note.style.setProperty('--glide', d + 's'); note.style.setProperty('--glide-delay', delay + 's');
+        clearTimeout(note._glideTimer);
+        note._glideTimer = setTimeout(() => { note.style.setProperty('--glide', '0s'); note.style.setProperty('--glide-delay', '0s'); }, (d + delay) * 1000 + 60);
+        startStringFollow((d + delay) * 1000 + 80);
+    }
+    note.style.left = x + 'px'; note.style.top = y + 'px';
+}
+// Solange Karten gleiten, die Fäden in jedem Frame nachziehen
+let followUntil = 0, followRaf = 0;
+function startStringFollow(ms) {
+    if (REDUCED_MOTION) return;
+    followUntil = Math.max(followUntil, performance.now() + ms);
+    if (!followRaf) followRaf = requestAnimationFrame(followFrame);
+}
+function followFrame(now) {
+    drawAllStrings();
+    if (now < followUntil) followRaf = requestAnimationFrame(followFrame); else { followRaf = 0; drawAllStrings(); }
+}
+function pulseCard(id) {
+    const el = document.getElementById('note-' + id); if (!el) return;
+    el._pulseUntil = performance.now() + 2300; el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse');
+    setTimeout(() => el.classList.remove('pulse'), 2300);
 }
 
 // Pinnwand wächst mit den Karten mit (scrollbar) statt sie abzuschneiden
@@ -180,7 +297,7 @@ function updateBoardSize(measure = true) {
     const container = document.getElementById('board-container'); const vp = document.getElementById('board-viewport');
     if (measure) { // Kartenausdehnung nur neu messen, wenn sich Karten geändert haben (nicht bei jedem Zoomschritt)
         let maxX = 0, maxY = 0;
-        container.querySelectorAll('.board-note').forEach(n => { maxX = Math.max(maxX, parseFloat(n.style.left) + (n.offsetWidth || 140)); maxY = Math.max(maxY, parseFloat(n.style.top) + (n.offsetHeight || 170)); });
+        container.querySelectorAll('.board-note:not(.leaving)').forEach(n => { maxX = Math.max(maxX, parseFloat(n.style.left) + (n.offsetWidth || 140)); maxY = Math.max(maxY, parseFloat(n.style.top) + (n.offsetHeight || 170)); });
         boardExtent = { x: maxX, y: maxY };
     }
     boardW = Math.ceil(Math.max(BOARD_MIN_W, vp.clientWidth / boardZoom, boardExtent.x + BOARD_PAD));
@@ -190,7 +307,11 @@ function updateBoardSize(measure = true) {
     document.getElementById('zoom-label').innerText = Math.round(boardZoom * 100) + '%';
 }
 
+// =========================================
+// ZOOM & ANSICHT
+// =========================================
 function setBoardZoom(z, anchorX, anchorY) {
+    cancelAnimationFrame(viewAnim); viewAnim = 0;
     const vp = document.getElementById('board-viewport');
     z = Math.max(0.25, Math.min(2, z));
     const ax = anchorX ?? vp.clientWidth / 2, ay = anchorY ?? vp.clientHeight / 2;
@@ -202,30 +323,92 @@ function setBoardZoom(z, anchorX, anchorY) {
     vp.scrollLeft = bx * z - ax; vp.scrollTop = by * z - ay;
     savePref('hb-board-zoom', boardZoom);
 }
-function zoomBoard(dir) { setBoardZoom(boardZoom * (dir > 0 ? 1.2 : 1 / 1.2)); }
+// Weicher Kameraflug: Zoom und Bildmitte (in Pinnwand-Koordinaten) gleiten zum Ziel
+let viewAnim = 0;
+function animateBoardView(z1, cx1 = null, cy1 = null, ms = 380) {
+    const vp = document.getElementById('board-viewport'); const container = document.getElementById('board-container');
+    const vw = vp.clientWidth, vh = vp.clientHeight; if (!vw) return;
+    z1 = Math.max(0.25, Math.min(2, z1));
+    const z0 = boardZoom, cx0 = (vp.scrollLeft + vw / 2) / z0, cy0 = (vp.scrollTop + vh / 2) / z0;
+    cx1 = cx1 ?? cx0; cy1 = cy1 ?? cy0;
+    cancelAnimationFrame(viewAnim); container.style.willChange = 'transform';
+    const t0 = performance.now(), dur = REDUCED_MOTION ? 0 : ms;
+    const step = now => {
+        const p = dur ? Math.min(1, (now - t0) / dur) : 1, e = 1 - Math.pow(1 - p, 3);
+        boardZoom = z0 + (z1 - z0) * e; updateBoardSize(false);
+        vp.scrollLeft = (cx0 + (cx1 - cx0) * e) * boardZoom - vw / 2; vp.scrollTop = (cy0 + (cy1 - cy0) * e) * boardZoom - vh / 2;
+        if (p < 1) { viewAnim = requestAnimationFrame(step); return; }
+        viewAnim = 0; container.style.willChange = ''; savePref('hb-board-zoom', boardZoom);
+    };
+    viewAnim = requestAnimationFrame(step);
+}
+function zoomBoard(dir) { animateBoardView(boardZoom * (dir > 0 ? 1.25 : 1 / 1.25), null, null, 220); }
 function fitBoard() {
-    const notes = Array.from(document.querySelectorAll('#board-container .board-note')); if (notes.length === 0) return;
+    const notes = Array.from(document.querySelectorAll(NOTE_SEL)); if (notes.length === 0) return;
     const vp = document.getElementById('board-viewport');
     let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
     notes.forEach(n => { const x = parseFloat(n.style.left), y = parseFloat(n.style.top); minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x + n.offsetWidth); maxY = Math.max(maxY, y + n.offsetHeight); });
     // Handy: nur die Breite einpassen (lesbar, nach unten scrollen); sonst alles auf einen Blick
     const byWidth = vp.clientWidth / (maxX - minX + 80);
-    setBoardZoom(boardIsNarrow() ? Math.min(byWidth, 1.2) : Math.min(byWidth, vp.clientHeight / (maxY - minY + 80), 1.2));
-    vp.scrollLeft = (minX - 40) * boardZoom; vp.scrollTop = (minY - 40) * boardZoom;
+    const z = Math.max(0.25, boardIsNarrow() ? Math.min(byWidth, 1.2) : Math.min(byWidth, vp.clientHeight / (maxY - minY + 80), 1.2));
+    animateBoardView(z, (minX + maxX) / 2, boardIsNarrow() ? minY - 40 + vp.clientHeight / (2 * z) : (minY + maxY) / 2, 450);
+}
+function centerOnCard(id) {
+    const el = document.getElementById('note-' + id); if (!el) return;
+    animateBoardView(Math.max(boardZoom, boardIsNarrow() ? NARROW_ZOOM : 0.75), parseFloat(el.style.left) + el.offsetWidth / 2, parseFloat(el.style.top) + el.offsetHeight / 2, 500);
+}
+
+// =========================================
+// FOKUS & SUCHE: das Netz einer Karte hervorheben, alles andere abdunkeln
+// =========================================
+function computeFocusSet() {
+    const vis = new Set([String(boardFocus.id)]); let frontier = [String(boardFocus.id)];
+    for (let d = 0; d < boardFocus.depth; d++) {
+        const next = [];
+        frontier.forEach(f => globalLinks.forEach(l => { const a = String(l.start), b = String(l.end); const o = a === f ? b : (b === f ? a : null); if (o && !vis.has(o)) { vis.add(o); next.push(o); } }));
+        frontier = next;
+    }
+    focusVisible = vis;
+}
+function setFocus(id, depth = 1) { boardFocus = { id: Number(id), depth }; computeFocusSet(); renderFocusBar(); renderBoard(); }
+function clearFocus() { boardFocus = null; focusVisible = new Set(); renderFocusBar(); renderBoard(); }
+function renderFocusBar() {
+    const bar = document.getElementById('focus-bar');
+    if (!boardFocus) { bar.hidden = true; bar.innerHTML = ''; return; }
+    const title = String(nodeTitle(boardFocus.id)); const count = focusVisible.size - 1;
+    bar.innerHTML = `<span>🔦 Fokus: <strong>${esc(title.length > 40 ? title.slice(0, 40) + '…' : title)}</strong> · ${count} ${boardFocus.depth === 1 ? (count === 1 ? 'direkter Kontakt' : 'direkte Kontakte') : 'Kontakte bis zum 2. Grad'}</span>
+        <button class="tool-btn" onclick="setFocus(${boardFocus.id}, ${boardFocus.depth === 1 ? 2 : 1})">${boardFocus.depth === 1 ? '+ 2. Grad' : 'nur direkte'}</button>
+        <button class="tool-btn" onclick="clearFocus()">✕ Fokus beenden</button>`;
+    bar.hidden = false;
+}
+function updateSearchList() {
+    const dl = document.getElementById('board-search-list');
+    const html = [...new Set(getBoardNodes().map(n => String(nodeTitle(n.id))))].sort((a, b) => a.localeCompare(b)).map(t => `<option value="${esc(t)}">`).join('');
+    if (dl._html !== html) { dl.innerHTML = html; dl._html = html; }
+}
+function boardSearch(input) {
+    const q = input.value.trim().toLowerCase(); if (!q) return;
+    const nodes = getBoardNodes(); const title = n => String(nodeTitle(n.id)).toLowerCase();
+    const node = nodes.find(n => title(n) === q) || nodes.find(n => title(n).includes(q));
+    if (!node) { showToast('Keine passende Karte gefunden'); return; }
+    input.value = ''; input.blur();
+    setFocus(node.id, 1); centerOnCard(node.id); pulseCard(node.id);
 }
 
 // =========================================
 // AUFRÄUMEN: verbundene Karten gruppieren, Gruppen und lose Karten sinnvoll anordnen
 // =========================================
 function arrangeBoard() {
-    if (!confirm("Pinnwand neu ordnen? Karten, die per Faden verbunden sind, werden zusammen gruppiert, lose Karten nach Art sortiert. Die neue Anordnung sehen alle.")) return;
-    const nodes = Array.from(document.querySelectorAll('#board-container .board-note')).map(el => ({ el, id: el.dataset.id, w: el.offsetWidth, h: el.offsetHeight }));
+    const nodes = Array.from(document.querySelectorAll(NOTE_SEL)).map(el => ({ el, id: el.dataset.id, w: el.offsetWidth, h: el.offsetHeight }));
     if (nodes.length === 0) return;
     const layout = smartLayout(nodes);
-    const updates = {};
-    nodes.forEach(n => { updates[n.id] = layout.get(n.id); });
-    animateBoardTo(nodes, layout);
+    const revert = {}, updates = {};
+    nodes.forEach(n => { const p = globalPositions[n.id]; revert['positions/' + n.id] = p ? { x: p.x, y: p.y } : null; updates[n.id] = layout.get(n.id); });
+    // Karten gleiten als sanfte Welle von links nach rechts an ihren Platz
+    [...nodes].sort((a, b) => layout.get(a.id).x - layout.get(b.id).x).forEach((n, i) => { const p = layout.get(n.id); placeNote(n.el, p.x, p.y, true, 0.75, Math.min(i * 0.015, 0.35)); });
+    updateBoardSize(); fitBoard();
     db.ref('positions').update(updates);
+    pushUndo('Pinnwand aufgeräumt', revert);
 }
 
 function smartLayout(nodes) {
@@ -384,20 +567,6 @@ function packBoxes(boxes, nodes) {
     chosen.placed.forEach(p => p.box.items.forEach(it => result.set(String(nodes[it.g].id), { x: Math.round(40 + p.x + it.x), y: Math.round(40 + p.y + it.y) })));
     return result;
 }
-// Karten gleiten an ihren neuen Platz, Fäden laufen mit
-function animateBoardTo(nodes, layout) {
-    const container = document.getElementById('board-container');
-    container.classList.add('arranging');
-    nodes.forEach(n => { const p = layout.get(n.id); n.el.style.left = p.x + 'px'; n.el.style.top = p.y + 'px'; });
-    updateBoardSize();
-    const end = performance.now() + 750;
-    const frame = now => {
-        drawAllStrings();
-        if (now < end) { requestAnimationFrame(frame); return; }
-        container.classList.remove('arranging'); updateBoardSize(); drawAllStrings(); fitBoard();
-    };
-    requestAnimationFrame(frame);
-}
 
 function toggleBoardFullscreen() {
     const on = document.getElementById('tab-pinnwand').classList.toggle('fullscreen');
@@ -413,22 +582,44 @@ function setLinkMode(on) {
     else if (selectedNodeId !== null) { selectedNodeId = null; renderBoard(); }
 }
 
-// Ziehen per Maus UND Touch (Pointer Events). Kurzes Antippen ohne Bewegung = Menü bzw. Verbinden
-// Die Karte wird beim Ziehen per GPU-Transform verschoben (kein Layout pro Frame) und nur einmal pro Bildschirm-Frame aktualisiert
+// =========================================
+// ZIEHEN per Maus und Touch (Pointer Events)
+// Maus: sofort ziehen. Touch: erst nach kurzem Halten (Karte hebt sich), normales Wischen scrollt die Wand.
+// Kurzes Antippen ohne Bewegung = Menü bzw. Verbinden.
+// Die Karte wird per GPU-Transform verschoben (kein Layout pro Frame) und nur einmal pro Bildschirm-Frame aktualisiert.
+// =========================================
 function onNotePointerDown(e) {
+    lastPointerType = e.pointerType;
     if (e.button !== 0) return;
     const note = e.currentTarget;
     const c = document.getElementById('board-container').getBoundingClientRect();
     const baseX = parseFloat(note.style.left), baseY = parseFloat(note.style.top);
-    dragState = { note, id: Number(note.dataset.id), startX: e.clientX, startY: e.clientY, baseX, baseY, x: baseX, y: baseY, offX: (e.clientX - c.left) / boardZoom - baseX, offY: (e.clientY - c.top) / boardZoom - baseY, moved: false, lastSync: 0, raf: 0 };
+    note.style.setProperty('--glide', '0s'); // eine laufende Gleit-Animation nicht mit dem Ziehen vermischen
+    const touch = e.pointerType !== 'mouse';
+    const s = dragState = { note, id: Number(note.dataset.id), startX: e.clientX, startY: e.clientY, baseX, baseY, x: baseX, y: baseY, offX: (e.clientX - c.left) / boardZoom - baseX, offY: (e.clientY - c.top) / boardZoom - baseY, moved: false, lastSync: 0, raf: 0, touch, armed: !touch, timer: 0 };
+    if (touch) s.timer = setTimeout(() => armTouchDrag(s), LONG_PRESS_MS);
     note.setPointerCapture(e.pointerId);
+}
+function armTouchDrag(s) {
+    if (dragState !== s || s.moved) return;
+    s.armed = true; s.note.classList.add('lifting');
+    try { if (navigator.vibrate) navigator.vibrate(12); } catch (err) {}
+}
+// Touch-Druck abbrechen, bevor gezogen wurde (Finger scrollt oder zweiter Finger zoomt)
+function cancelPendingDrag() {
+    const s = dragState; if (!s || s.moved) return;
+    clearTimeout(s.timer); s.note.classList.remove('lifting'); dragState = null;
 }
 function onNotePointerMove(e) {
     const s = dragState; if (!s || s.note !== e.currentTarget) return;
+    const dist = Math.hypot(e.clientX - s.startX, e.clientY - s.startY);
+    if (!s.armed) { if (dist > 10) cancelPendingDrag(); return; } // Finger bewegt sich vor dem Halten = Scrollen
     if (!s.moved) {
-        if (Math.hypot(e.clientX - s.startX, e.clientY - s.startY) < 6) return;
-        s.moved = true; currentDragElement = s.note; s.note.classList.add('dragging');
+        if (dist < (s.touch ? 2 : 6)) return;
+        s.moved = true; currentDragElement = s.note; s.note.classList.remove('lifting'); s.note.classList.add('dragging');
+        if (hoverNodeId !== null) { hoverNodeId = null; updateStringStates(); } // Leuchtfilter beim Ziehen aus – er müsste sonst jeden Frame neu berechnet werden
         s.rects = cardRects().filter(r => r.el !== s.note); // andere Karten bewegen sich nicht – einmal messen reicht
+        drawAllStrings(s.id, s.rects);
     }
     s.clientX = e.clientX; s.clientY = e.clientY;
     if (!s.raf) s.raf = requestAnimationFrame(() => { s.raf = 0; applyDrag(s); });
@@ -445,16 +636,20 @@ function applyDrag(s) {
 }
 function onNotePointerUp(e) {
     const s = dragState; if (!s || s.note !== e.currentTarget) return;
+    clearTimeout(s.timer);
     if (s.raf) { cancelAnimationFrame(s.raf); s.raf = 0; applyDrag(s); }
-    dragState = null;
+    dragState = null; s.note.classList.remove('lifting');
     if (s.moved) {
         const note = s.note;
-        // Erst endgültige Position setzen und Verschiebung auf 0 – noch ohne Übergang –, dann die Karte "loslassen"
+        // Erst endgültige Position setzen und Verschiebung auf 0 – noch ohne Übergang –, dann die Karte "loslassen" (federt kurz nach)
         note.style.left = s.x + 'px'; note.style.top = s.y + 'px'; note.style.setProperty('--dx', '0px'); note.style.setProperty('--dy', '0px');
         delete note._dragPos; void note.offsetWidth;
         currentDragElement = null; note.classList.remove('dragging');
         db.ref('positions/' + s.id).set({ x: s.x, y: s.y });
+        // Am Handy mit Hinweis – falls doch versehentlich verschoben; am PC reicht der Knopf bzw. Strg+Z
+        if (s.x !== s.baseX || s.y !== s.baseY) pushUndo('Karte verschoben', { ['positions/' + s.id]: { x: s.baseX, y: s.baseY } }, s.touch);
         updateBoardSize(); drawAllStrings();
+        const pin = pinEls.get(String(s.id)); if (pin && !REDUCED_MOTION) { pin.classList.remove('drop'); void pin.offsetWidth; pin.classList.add('drop'); } // Nadel wieder einstecken
     } else if (e.type === 'pointerup' && !s.cancelTap) {
         handleNoteTap(s.id, e);
     }
@@ -462,37 +657,40 @@ function onNotePointerUp(e) {
 // Positionsänderungen anderer (bzw. das Echo der eigenen) während des Ziehens: nur betroffene Karten verschieben
 function applyPositionsLight() {
     let changed = false;
-    document.querySelectorAll('#board-container .board-note').forEach(note => {
+    document.querySelectorAll(NOTE_SEL).forEach(note => {
         if (note === currentDragElement) return;
         const pos = globalPositions[note.dataset.id]; if (!pos) return;
-        if (parseFloat(note.style.left) !== pos.x || parseFloat(note.style.top) !== pos.y) { note.style.left = pos.x + 'px'; note.style.top = pos.y + 'px'; changed = true; }
+        if (parseFloat(note.style.left) !== pos.x || parseFloat(note.style.top) !== pos.y) { placeNote(note, pos.x, pos.y); changed = true; }
     });
-    if (changed) { if (dragState) dragState.rects = cardRects().filter(r => r.el !== dragState.note); drawAllStrings(); }
+    if (changed && dragState) dragState.rects = cardRects().filter(r => r.el !== dragState.note);
 }
 
 function handleNoteTap(id, e) {
     if (linkMode || selectedNodeId !== null) { handleLinkSelection(id, e); return; }
     const node = getBoardNodes().find(n => n.id === id); if (!node) return;
     const startLink = { label: '🧵 Faden von hier spannen', action: () => { setLinkMode(true); handleLinkSelection(id, e); } };
-    const removeCard = { label: '🗑 Von Pinnwand entfernen', danger: true, action: () => { if (confirm("Karte samt Fäden von der Pinnwand nehmen? (Das Original bleibt erhalten)")) db.ref().update({ ['boardNotes/' + id]: null, ...boardNodeCleanup(id) }); } };
+    const focusItem = boardFocus && boardFocus.id === id
+        ? (boardFocus.depth === 1 ? { label: '🔦 Auch 2. Grad zeigen', action: () => setFocus(id, 2) } : { label: '🔦 Fokus beenden', action: clearFocus })
+        : { label: '🔦 Netz zeigen', action: () => setFocus(id, 1) };
+    const removeCard = { label: '🗑 Von Pinnwand entfernen', danger: true, action: () => removeCardFromBoard(id, 'Karte von der Pinnwand genommen') };
     if (node.kind === 'npc') {
         const person = node.data;
-        const items = [startLink, { label: '📂 Akte anzeigen', action: () => showPerson(id) }];
+        const items = [focusItem, startLink, { label: '📂 Akte anzeigen', action: () => showPerson(id) }];
         if (person.image && person.image.trim() !== '') items.push({ label: '🔍 Bild vergrößern', action: () => openLightbox(person.image) });
         showMenu(e.clientX, e.clientY, person.name, items);
     } else if (node.kind === 'handout') {
-        const items = [startLink, { label: '📄 Im Archiv öffnen', action: () => showHandout(node.ref.id) }];
+        const items = [focusItem, startLink, { label: '📄 Im Archiv öffnen', action: () => showHandout(node.ref.id) }];
         if (node.ref.image && node.ref.image.trim() !== '') items.push({ label: '🔍 Bild vergrößern', action: () => openLightbox(node.ref.image) });
         showMenu(e.clientX, e.clientY, node.ref.title, [...items, removeCard]);
     } else if (node.kind === 'pin') {
-        showMenu(e.clientX, e.clientY, node.ref.note, [startLink, { label: '🗺 Auf Karte zeigen', action: () => showPinOnMap(node.ref.id) }, removeCard]);
+        showMenu(e.clientX, e.clientY, node.ref.note, [focusItem, startLink, { label: '🗺 Auf Karte zeigen', action: () => showPinOnMap(node.ref.id) }, removeCard]);
     } else {
         const zettel = node.data;
         showMenu(e.clientX, e.clientY, zettel.text, [
-            startLink,
-            { label: '✎ Text bearbeiten', action: () => { const t = prompt("Zettel bearbeiten:", zettel.text); if (t && t.trim() !== "") db.ref('boardNotes/' + id).update({ text: t.trim() }); } },
-            { label: '🎨 Farbe wechseln', action: () => db.ref('boardNotes/' + id).update({ color: ((zettel.color || 0) + 1) % NOTE_COLORS.length }) },
-            { label: '🗑 Zettel entfernen', danger: true, action: () => { if (confirm("Zettel samt Fäden entfernen?")) db.ref().update({ ['boardNotes/' + id]: null, ...boardNodeCleanup(id) }); } }
+            focusItem, startLink,
+            { label: '✎ Text bearbeiten', action: () => { const t = prompt("Zettel bearbeiten:", zettel.text); if (t && t.trim() !== "" && t.trim() !== zettel.text) { db.ref('boardNotes/' + id).update({ text: t.trim() }); pushUndo('Zettel geändert', { ['boardNotes/' + id + '/text']: zettel.text }); } } },
+            { label: '🎨 Farbe wechseln', action: () => { db.ref('boardNotes/' + id).update({ color: ((zettel.color || 0) + 1) % NOTE_COLORS.length }); pushUndo('Farbe geändert', { ['boardNotes/' + id + '/color']: zettel.color || 0 }, false); } },
+            { label: '🗑 Zettel entfernen', danger: true, action: () => removeCardFromBoard(id, 'Zettel entfernt') }
         ]);
     }
 }
@@ -518,12 +716,13 @@ function addRefToBoard(type, refId) {
     if (globalBoardNotes.some(n => n.type === type && n.refId === refId)) { showToast('Hängt schon an der Pinnwand'); return; }
     const id = Date.now();
     db.ref().update({ ['boardNotes/' + id]: { id, type, refId }, ['positions/' + id]: findVisibleFreeSpot() });
-    showToast('An die Pinnwand geheftet');
+    pushUndo('An die Pinnwand geheftet', { ['boardNotes/' + id]: null, ['positions/' + id]: null });
 }
 function addBoardNote() {
     const text = prompt("Was soll auf den Zettel? (z.B. Hinweis, Theorie)"); if (!text || text.trim() === "") return;
     const id = Date.now();
     db.ref().update({ ['boardNotes/' + id]: { id, text: text.trim(), color: 0 }, ['positions/' + id]: findVisibleFreeSpot() });
+    pushUndo('Zettel angeheftet', { ['boardNotes/' + id]: null, ['positions/' + id]: null });
 }
 
 // Fäden: erst zwei Karten wählen, dann Art und Beschriftung
@@ -541,7 +740,10 @@ function handleLinkSelection(id, e) {
         else {
             chooseLinkType(e, 'Art der Verbindung?', type => {
                 const labelInput = prompt("Beschriftung? (z.B. 'schuldet Geld' oder leer lassen)");
-                if (labelInput !== null) db.ref('links/' + start + "_" + id).set({ start, end: id, label: labelInput.trim(), type });
+                if (labelInput === null) return;
+                const key = start + "_" + id;
+                db.ref('links/' + key).set({ start, end: id, label: labelInput.trim(), type });
+                pushUndo('Faden gespannt', { ['links/' + key]: null });
             });
         }
         selectedNodeId = null;
@@ -550,90 +752,155 @@ function handleLinkSelection(id, e) {
 }
 
 function openLinkMenu(link, e) {
+    const key = link.dbKey;
     showMenu(e.clientX, e.clientY, `${nodeTitle(link.start)} ↔ ${nodeTitle(link.end)}\n(${linkType(link).label})`, [
-        { label: '✎ Beschriftung ändern', action: () => { const l = prompt("Beschriftung des Fadens:", link.label || ''); if (l !== null) db.ref('links/' + link.dbKey).update({ label: l.trim() }); } },
-        { label: '🎨 Art ändern', action: () => chooseLinkType(e, 'Art der Verbindung', type => db.ref('links/' + link.dbKey).update({ type })) },
-        { label: '🗑 Faden löschen', danger: true, action: () => { if (confirm("Verbindung löschen?")) db.ref('links/' + link.dbKey).remove(); } }
+        { label: '✎ Beschriftung ändern', action: () => { const l = prompt("Beschriftung des Fadens:", link.label || ''); if (l !== null && l.trim() !== (link.label || '')) { db.ref('links/' + key).update({ label: l.trim() }); pushUndo('Beschriftung geändert', { ['links/' + key + '/label']: link.label || '' }, false); } } },
+        { label: '🎨 Art ändern', action: () => chooseLinkType(e, 'Art der Verbindung', type => { db.ref('links/' + key).update({ type }); pushUndo('Fadenart geändert', { ['links/' + key + '/type']: link.type || null }, false); }) },
+        { label: '🗑 Faden löschen', danger: true, action: () => { db.ref('links/' + key).remove(); pushUndo('Faden gelöscht', { ['links/' + key]: linkData(link) }); } }
     ]);
 }
+function clearStrings() {
+    if (!globalLinks.length || !confirm("Alle Fäden löschen?")) return;
+    const revert = {}; globalLinks.forEach(l => { revert['links/' + l.dbKey] = linkData(l); });
+    db.ref('links').remove();
+    pushUndo('Alle Fäden gelöscht', revert);
+}
 
-// Position einer Karte: beim Ziehen die aktuelle Zugposition, sonst offsetLeft (folgt auch der Gleit-Animation beim Aufräumen)
+// =========================================
+// FÄDEN & NADELN
+// Der Faden läuft HINTER fremden Karten durch. Sichtbar auf einer Karte ist nur das kurze Stück am Knoten
+// um die eigene Nadel – so verdecken Fäden keine Gesichter und Namen.
+// =========================================
+// Position einer Karte: beim Ziehen die aktuelle Zugposition, sonst offsetLeft (folgt auch Gleit-Animationen)
 function notePos(el) { return el._dragPos || { x: el.offsetLeft, y: el.offsetTop }; }
+function noteRect(el) { const p = notePos(el); return { el, x: p.x, y: p.y, w: el.offsetWidth, h: el.offsetHeight }; }
 function pinAnchor(el) { const p = notePos(el); return { x: p.x + el.offsetWidth / 2, y: p.y + PIN_OFFSET_Y }; }
-function cardRects() { return Array.from(document.querySelectorAll('#board-container .board-note')).map(n => { const p = notePos(n); return { el: n, x: p.x, y: p.y, w: n.offsetWidth, h: n.offsetHeight }; }); }
-// Faden von Nadel zu Nadel, hängt je nach Länge durch. Das Etikett sitzt möglichst mittig,
-// rutscht aber entlang des Fadens an eine Stelle, an der es keine Karte verdeckt
+function cardRects() { return Array.from(document.querySelectorAll(NOTE_SEL)).map(noteRect); }
+// Punkt bzw. Teilstück der quadratischen Fadenkurve
+function quadAt(g, t) { const u = 1 - t; return { x: u * u * g.x1 + 2 * u * t * g.cx + t * t * g.x2, y: u * u * g.y1 + 2 * u * t * g.cy + t * t * g.y2 }; }
+function quadSegment(g, t0, t1) {
+    const p0 = quadAt(g, t0), p1 = quadAt(g, t1), k = (t1 - t0) / 2;
+    const dx = 2 * (1 - t0) * (g.cx - g.x1) + 2 * t0 * (g.x2 - g.cx), dy = 2 * (1 - t0) * (g.cy - g.y1) + 2 * t0 * (g.y2 - g.cy);
+    return { x0: p0.x, y0: p0.y, cx: p0.x + dx * k, cy: p0.y + dy * k, x1: p1.x, y1: p1.y };
+}
+function segPath(s, ox = 0, oy = 0) { return `M${s.x0 + ox},${s.y0 + oy} Q${s.cx + ox},${s.cy + oy} ${s.x1 + ox},${s.y1 + oy}`; }
+// Sichtbare Stücke auf den eigenen Karten: von der Nadel bis zum Kartenrand, höchstens KNOT_LENGTH lang
+function knotSegments(g) {
+    if (g.tA >= g.tB) return [quadSegment(g, 0, 1)]; // Karten überlappen – ganzer Faden sichtbar
+    const len = (Math.hypot(g.cx - g.x1, g.cy - g.y1) + Math.hypot(g.x2 - g.cx, g.y2 - g.cy) + Math.hypot(g.x2 - g.x1, g.y2 - g.y1)) / 2;
+    const knot = Math.min(0.5, KNOT_LENGTH / Math.max(1, len));
+    return [quadSegment(g, 0, Math.min(g.tA, knot)), quadSegment(g, Math.max(g.tB, 1 - knot), 1)];
+}
+// Faden von Nadel zu Nadel, hängt je nach Länge durch. Das Etikett sitzt auf dem sichtbaren Stück zwischen den Karten,
+// möglichst mittig, und rutscht an eine Stelle, an der es keine Karte verdeckt
+const newLinkTimes = new Map();
 function linkGeometry(link, rects = cardRects()) {
     const a = document.getElementById('note-' + link.start), b = document.getElementById('note-' + link.end); if (!a || !b) return null;
     const p1 = pinAnchor(a), p2 = pinAnchor(b);
-    const sag = Math.min(110, Math.hypot(p2.x - p1.x, p2.y - p1.y) * 0.16) + 8;
-    const cx = (p1.x + p2.x) / 2, cy = (p1.y + p2.y) / 2 + sag;
-    const at = t => ({ x: (1 - t) ** 2 * p1.x + 2 * (1 - t) * t * cx + t * t * p2.x, y: (1 - t) ** 2 * p1.y + 2 * (1 - t) * t * cy + t * t * p2.y });
+    let sag = Math.min(110, Math.hypot(p2.x - p1.x, p2.y - p1.y) * 0.16) + 8;
+    const born = newLinkTimes.get(link.dbKey);
+    if (born !== undefined) { // neuer Faden hängt erst locker durch und strafft sich dann
+        const p = Math.min(1, (performance.now() - born) / TIGHTEN_MS);
+        if (p >= 1) newLinkTimes.delete(link.dbKey); else sag *= 1 + 1.6 * Math.pow(1 - p, 3);
+    }
+    const g = { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, cx: (p1.x + p2.x) / 2, cy: (p1.y + p2.y) / 2 + sag };
+    // Wo verlässt der Faden die eigenen Karten?
+    const inside = (p, r) => p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h;
+    const ra = noteRect(a), rb = noteRect(b);
+    let tA = 0; while (tA < 1 && inside(quadAt(g, tA), ra)) tA += 0.02;
+    let tB = 1; while (tB > 0 && inside(quadAt(g, tB), rb)) tB -= 0.02;
+    g.tA = Math.min(1, tA); g.tB = Math.max(0, tB);
     const covers = p => rects.some(r => p.x > r.x - 35 && p.x < r.x + r.w + 35 && p.y > r.y - 12 && p.y < r.y + r.h + 12);
-    const spot = [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74, 0.18, 0.82].map(at).find(p => !covers(p)) || at(0.5);
-    return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, cx, cy, lx: spot.x, ly: spot.y };
+    const from = g.tA < g.tB ? g.tA : 0, to = g.tA < g.tB ? g.tB : 1;
+    const spot = [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74, 0.18, 0.82].map(t => quadAt(g, from + (to - from) * t)).find(p => !covers(p)) || quadAt(g, (from + to) / 2);
+    g.lx = spot.x; g.ly = spot.y;
+    return g;
 }
 
 // Fäden, Etiketten und Nadeln bleiben als Elemente bestehen und werden nur aktualisiert.
 // Mit onlyNodeId (beim Ziehen) werden nur die Fäden dieser einen Karte neu berechnet.
 const stringEls = new Map(); const pinEls = new Map();
 const SVG_NS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, cls) { const el = document.createElementNS(SVG_NS, tag); if (cls) el.setAttribute('class', cls); return el; }
+function createStringEls(link) {
+    const yarn = () => { const g = svgEl('g', 'yarn-group'); const parts = { shadow: svgEl('path', 'yarn-shadow'), base: svgEl('path', 'yarn'), twist: svgEl('path', 'yarn-twist') }; g.append(parts.shadow, parts.base, parts.twist); return { g, ...parts }; };
+    const els = { under: yarn(), over: yarn(), label: document.createElement('div') };
+    els.label.className = 'string-label';
+    const key = link.dbKey; const current = () => globalLinks.find(l => l.dbKey === key);
+    els.label.onclick = e => { const l = current(); if (l) openLinkMenu(l, e); };
+    els.label.oncontextmenu = e => { e.preventDefault(); const l = current(); if (l) openLinkMenu(l, e); };
+    els.label.onpointerenter = () => { hoverNodeId = null; els.under.g.classList.add('hl'); els.over.g.classList.add('hl'); };
+    els.label.onpointerleave = () => { const l = current(); if (l) setStringState(l, els); };
+    if (newLinkTimes.has(key)) { [els.under.g, els.over.g, els.label].forEach(x => x.classList.add('appear')); setTimeout(() => [els.under.g, els.over.g, els.label].forEach(x => x.classList.remove('appear')), 1000); }
+    document.getElementById('strings-under').appendChild(els.under.g); document.getElementById('strings-over').appendChild(els.over.g);
+    document.getElementById('string-labels-container').appendChild(els.label);
+    stringEls.set(key, els);
+    return els;
+}
+function removeStringEls(key, els) {
+    stringEls.delete(key);
+    const parts = [els.under.g, els.over.g, els.label];
+    parts.forEach(x => x.classList.add('leaving'));
+    setTimeout(() => parts.forEach(x => x.remove()), REDUCED_MOTION ? 0 : 320);
+}
+function setStringState(link, els) {
+    const dim = !!boardFocus && !(focusVisible.has(String(link.start)) && focusVisible.has(String(link.end)));
+    const hl = !dim && ((hoverNodeId !== null && linkTouches(link, hoverNodeId)) || (selectedNodeId !== null && linkTouches(link, selectedNodeId)) || (!!boardFocus && linkTouches(link, boardFocus.id)));
+    [els.under.g, els.over.g, els.label].forEach(x => { x.classList.toggle('dim', dim); x.classList.toggle('hl', hl); });
+}
+function updateStringStates() {
+    globalLinks.forEach(l => { const els = stringEls.get(l.dbKey); if (els) setStringState(l, els); });
+    pinEls.forEach((p, id) => p.classList.toggle('dim', !!boardFocus && !focusVisible.has(id)));
+}
 function drawAllStrings(onlyNodeId = null, rectsOverride = null) {
-    const svg = document.getElementById('strings-svg'); const labelsContainer = document.getElementById('string-labels-container'); const pins = document.getElementById('board-pins');
-    const notes = Array.from(document.querySelectorAll('#board-container .board-note'));
-    const rects = rectsOverride ? [...rectsOverride, ...(dragState ? [{ x: dragState.x, y: dragState.y, w: dragState.note.offsetWidth, h: dragState.note.offsetHeight }] : [])] : cardRects();
+    const notes = Array.from(document.querySelectorAll(NOTE_SEL));
+    const rects = rectsOverride ? [...rectsOverride, ...(dragState && dragState.moved ? [{ x: dragState.x, y: dragState.y, w: dragState.note.offsetWidth, h: dragState.note.offsetHeight }] : [])] : cardRects();
     const live = new Set();
     globalLinks.forEach(link => {
         live.add(link.dbKey);
-        if (onlyNodeId !== null && Number(link.start) !== onlyNodeId && Number(link.end) !== onlyNodeId) return;
+        if (onlyNodeId !== null && !linkTouches(link, onlyNodeId)) return;
         let els = stringEls.get(link.dbKey);
         const g = linkGeometry(link, rects);
-        if (!g) { if (els) { els.shadow.remove(); els.base.remove(); els.twist.remove(); els.label.remove(); stringEls.delete(link.dbKey); } return; }
-        if (!els) {
-            // Schatten als versetzter dunkler Faden statt SVG-Filter (Filter müssten bei jeder Bewegung neu berechnet werden)
-            els = { shadow: document.createElementNS(SVG_NS, 'path'), base: document.createElementNS(SVG_NS, 'path'), twist: document.createElementNS(SVG_NS, 'path'), label: document.createElement('div') };
-            els.shadow.setAttribute('class', 'yarn-shadow'); els.twist.setAttribute('class', 'yarn-twist'); els.label.className = 'string-label';
-            const key = link.dbKey; const current = () => globalLinks.find(l => l.dbKey === key);
-            els.label.onclick = e => { const l = current(); if (l) openLinkMenu(l, e); };
-            els.label.oncontextmenu = e => { e.preventDefault(); const l = current(); if (l) openLinkMenu(l, e); };
-            svg.append(els.shadow, els.base, els.twist); labelsContainer.appendChild(els.label);
-            stringEls.set(key, els);
-        }
+        if (!g) { if (els) removeStringEls(link.dbKey, els); return; }
+        if (!els) els = createStringEls(link);
         const t = linkType(link);
-        const active = selectedNodeId !== null && (Number(link.start) === selectedNodeId || Number(link.end) === selectedNodeId);
-        const d = `M${g.x1},${g.y1} Q${g.cx},${g.cy} ${g.x2},${g.y2}`;
-        els.base.setAttribute('d', d); els.twist.setAttribute('d', d);
-        els.shadow.setAttribute('d', `M${g.x1 + 2},${g.y1 + 5} Q${g.cx + 2},${g.cy + 5} ${g.x2 + 2},${g.y2 + 5}`);
-        els.base.setAttribute('class', 'yarn' + (active ? ' active' : '')); els.base.style.stroke = t.color; els.base.style.strokeWidth = t.width + (active ? 1.5 : 0);
-        els.shadow.style.strokeWidth = t.width + 1;
+        // Ganzer Faden unter den Karten, Knoten-Stücke über den eigenen Karten (beide mit Schatten)
+        const full = quadSegment(g, 0, 1), knots = knotSegments(g);
+        els.under.shadow.setAttribute('d', segPath(full, 2, 5)); els.under.base.setAttribute('d', segPath(full)); els.under.twist.setAttribute('d', segPath(full));
+        els.over.shadow.setAttribute('d', knots.map(s => segPath(s, 1.5, 3.5)).join(' ')); els.over.base.setAttribute('d', knots.map(s => segPath(s)).join(' ')); els.over.twist.setAttribute('d', knots.map(s => segPath(s)).join(' '));
+        [els.under.g, els.over.g].forEach(x => { x.style.stroke = t.color; x.style.strokeWidth = t.width; });
         els.label.style.left = g.lx + 'px'; els.label.style.top = g.ly + 'px';
         els.label.style.borderTopColor = t.color; els.label.style.setProperty('--rot', tiltFor(link.dbKey, 4).toFixed(1) + 'deg');
         const text = (link.label && link.label.trim() !== "") ? link.label : "🔗"; if (els.label.textContent !== text) els.label.textContent = text;
         els.label.title = t.label + " – klicken zum Bearbeiten oder Löschen";
+        if (onlyNodeId === null) setStringState(link, els);
     });
-    // Stecknadeln liegen über den Fäden – die Fäden sind darum geknotet
-    const livePins = new Set();
+    // Stecknadeln liegen über allem – die Fäden sind darum geknotet
+    const pinsLayer = document.getElementById('board-pins'); const livePins = new Set();
     notes.forEach(n => {
         livePins.add(n.dataset.id);
         if (onlyNodeId !== null && Number(n.dataset.id) !== onlyNodeId) return;
         let p = pinEls.get(n.dataset.id);
-        if (!p) { p = document.createElement('div'); p.className = 'pushpin'; pins.appendChild(p); pinEls.set(n.dataset.id, p); }
+        if (!p) {
+            p = document.createElement('div'); p.className = 'pushpin'; pinsLayer.appendChild(p); pinEls.set(n.dataset.id, p);
+            if (boardLoaded && !REDUCED_MOTION) { p.classList.add('drop'); setTimeout(() => p.classList.remove('drop'), 700); } // neue Karte: Nadel wird eingesteckt
+        }
         const a = pinAnchor(n);
         p.style.left = a.x + 'px'; p.style.top = a.y + 'px'; p.style.setProperty('--pin', n.dataset.pin || PUSHPIN_COLORS.npc);
         p.style.display = n.classList.contains('dragging') ? 'none' : ''; // abgenommene Karte hat gerade keine Nadel
     });
-    if (onlyNodeId === null) { // Verwaiste Elemente (gelöschte Fäden/Karten) aufräumen
-        stringEls.forEach((els, key) => { if (!live.has(key)) { els.shadow.remove(); els.base.remove(); els.twist.remove(); els.label.remove(); stringEls.delete(key); } });
-        pinEls.forEach((p, id) => { if (!livePins.has(id)) { p.remove(); pinEls.delete(id); } });
+    if (onlyNodeId === null) { // Verwaiste Elemente (gelöschte Fäden/Karten) ausblenden und entfernen
+        stringEls.forEach((els, key) => { if (!live.has(key)) removeStringEls(key, els); });
+        pinEls.forEach((p, id) => { if (!livePins.has(id)) { pinEls.delete(id); p.classList.add('leaving'); setTimeout(() => p.remove(), REDUCED_MOTION ? 0 : 300); } });
+        updateStringStates();
     }
 }
-function clearStrings() { if(confirm("Alle Fäden löschen?")) { db.ref('links').remove(); } }
 
 // =========================================
 // PINNWAND ALS BILD (PNG) EXPORTIEREN
 // =========================================
 function exportBoardImage() {
-    if (document.querySelectorAll('#board-container .board-note').length === 0) { showToast('Die Pinnwand ist leer'); return; }
+    if (document.querySelectorAll(NOTE_SEL).length === 0) { showToast('Die Pinnwand ist leer'); return; }
     downloadCanvas(renderBoardCanvas(true))
         // Externe Bilder ohne CORS-Freigabe "verunreinigen" das Canvas – dann ohne Fotos exportieren
         .catch(() => downloadCanvas(renderBoardCanvas(false)).then(() => showToast('Exportiert – externe Fotos mussten weggelassen werden')))
@@ -651,11 +918,11 @@ function downloadCanvas(canvas) {
     });
 }
 function renderBoardCanvas(withImages) {
-    const notes = Array.from(document.querySelectorAll('#board-container .board-note'));
+    const notes = Array.from(document.querySelectorAll(NOTE_SEL));
     const rects = cardRects(); const strings = globalLinks.map(link => ({ link, g: linkGeometry(link, rects) })).filter(s => s.g);
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     notes.forEach(n => { const x = parseFloat(n.style.left), y = parseFloat(n.style.top); minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x + n.offsetWidth); maxY = Math.max(maxY, y + n.offsetHeight); });
-    strings.forEach(({ g }) => { minX = Math.min(minX, g.lx - 80); maxX = Math.max(maxX, g.lx + 80); maxY = Math.max(maxY, g.ly + 20); });
+    strings.forEach(({ g }) => { minX = Math.min(minX, g.lx - 80); maxX = Math.max(maxX, g.lx + 80); maxY = Math.max(maxY, g.ly + 20, g.cy); });
     const pad = 50, w = maxX - minX + 2 * pad, h = maxY - minY + 2 * pad;
     const scale = Math.min(2, 8000 / Math.max(w, h));
     const canvas = document.createElement('canvas'); canvas.width = Math.ceil(w * scale); canvas.height = Math.ceil(h * scale);
@@ -665,17 +932,21 @@ function renderBoardCanvas(withImages) {
     let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
     for (let i = 0; i < w * h / 60; i++) { ctx.fillStyle = rnd() < 0.6 ? 'rgba(90,50,20,0.22)' : 'rgba(235,200,150,0.25)'; ctx.fillRect(minX - pad + rnd() * w, minY - pad + rnd() * h, 1 + rnd() * 2, 1 + rnd() * 2); }
 
+    const curve = (s, color, width, dash, ox = 0, oy = 0) => {
+        ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = 'round'; ctx.setLineDash(dash || []);
+        ctx.beginPath(); ctx.moveTo(s.x0 + ox, s.y0 + oy); ctx.quadraticCurveTo(s.cx + ox, s.cy + oy, s.x1 + ox, s.y1 + oy); ctx.stroke(); ctx.restore();
+    };
+    const yarn = (segs, t, shadowOffset) => {
+        segs.forEach(s => curve(s, 'rgba(20,10,0,0.28)', t.width, null, shadowOffset[0], shadowOffset[1]));
+        segs.forEach(s => curve(s, t.color, t.width));
+        segs.forEach(s => curve(s, 'rgba(255,255,255,0.3)', 1, [2, 3]));
+    };
+    // wie auf der Pinnwand: Fäden hinter den Karten, Knoten-Stücke darüber, dann Nadeln und Etiketten
+    strings.forEach(({ link, g }) => yarn([quadSegment(g, 0, 1)], linkType(link), [2, 5]));
     notes.forEach(n => drawNoteOnCanvas(ctx, n, withImages));
-    strings.forEach(({ link, g }) => {
-        const t = linkType(link);
-        ctx.save(); ctx.strokeStyle = t.color; ctx.lineWidth = t.width; ctx.lineCap = 'round';
-        ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 3; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 4;
-        ctx.beginPath(); ctx.moveTo(g.x1, g.y1); ctx.quadraticCurveTo(g.cx, g.cy, g.x2, g.y2); ctx.stroke(); ctx.restore();
-        ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
-        ctx.beginPath(); ctx.moveTo(g.x1, g.y1); ctx.quadraticCurveTo(g.cx, g.cy, g.x2, g.y2); ctx.stroke(); ctx.restore();
-    });
+    strings.forEach(({ link, g }) => yarn(knotSegments(g), linkType(link), [1.5, 3.5]));
     notes.forEach(n => drawPushpinOnCanvas(ctx, pinAnchor(n), n.dataset.pin || PUSHPIN_COLORS.npc));
-    strings.forEach(({ link, g }) => { // Etiketten wie auf der Pinnwand ganz oben
+    strings.forEach(({ link, g }) => {
         const text = link.label && link.label.trim() !== '' ? link.label : '🔗';
         ctx.save(); ctx.translate(g.lx, g.ly); ctx.rotate(tiltFor(link.dbKey, 4) * Math.PI / 180);
         ctx.font = '600 17px Caveat, "Segoe Print", cursive'; const tw = Math.min(150, ctx.measureText(text).width);

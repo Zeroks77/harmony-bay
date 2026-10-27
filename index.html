@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Special+Elite&display=swap">
-    <link rel="stylesheet" href="css/style.css?v=8">
+    <link rel="stylesheet" href="css/style.css?v=10">
 </head>
 <body>
 
@@ -191,6 +191,7 @@
                 <div class="board-toolbar">
                     <h2>// VERKNÜPFUNGSANALYSE</h2>
                     <div class="board-actions">
+                        <button class="tool-btn" id="undo-btn" onclick="undoLast()" disabled>↶ Rückgängig</button>
                         <button class="tool-btn" id="link-mode-btn" onclick="setLinkMode(!linkMode)">🧵 Faden spannen</button>
                         <button class="tool-btn" onclick="openAddMenu(this)" title="Zettel, Beweismittel oder Orte anheften">+ Hinzufügen</button>
                         <button class="tool-btn" onclick="arrangeBoard()" title="Alle Karten ohne Überlappung im Raster anordnen">▦ Aufräumen</button>
@@ -203,13 +204,15 @@
                         <button class="tool-btn" id="board-fs-btn" onclick="toggleBoardFullscreen()">⛶ Vollbild</button>
                         <button class="tool-btn" onclick="exportBoardImage()" title="Pinnwand als PNG-Bild herunterladen">📷 Als Bild</button>
                         <button class="tool-btn danger" onclick="clearStrings()">Alle Fäden löschen</button>
+                        <input type="search" id="board-search" class="board-search" list="board-search-list" placeholder="🔍 Karte suchen …" enterkeyhint="search" onchange="boardSearch(this)" onkeydown="if (event.key === 'Enter') boardSearch(this)"><datalist id="board-search-list"></datalist>
                     </div>
                     <div class="link-legend" id="link-legend"></div>
-                    <p class="board-hint">Karte ziehen = verschieben · Karte anklicken = Optionen · Rechtsklick auf zwei Karten oder „Faden spannen“ = verbinden · Faden-Etikett anklicken = beschriften/löschen · Strg+Mausrad = Zoom</p>
+                    <div class="focus-bar" id="focus-bar" hidden></div>
+                    <p class="board-hint">Karte ziehen = verschieben (am Handy: kurz halten, dann ziehen) · Karte anklicken = Optionen & „Netz zeigen“ · Rechtsklick auf zwei Karten oder „Faden spannen“ = verbinden · Faden-Etikett anklicken = beschriften/löschen · Strg+Mausrad = Zoom</p>
                 </div>
                 <div id="board-viewport">
                     <div id="board-sizer">
-                        <div id="board-container"><svg id="strings-svg"></svg><div id="board-pins"></div><div id="string-labels-container"></div></div>
+                        <div id="board-container"><svg id="strings-under" class="strings-layer"></svg><svg id="strings-over" class="strings-layer"></svg><div id="board-pins"></div><div id="string-labels-container"></div></div>
                     </div>
                 </div>
             </div>
@@ -255,14 +258,14 @@
     <div id="toast"></div>
 
     <!-- Reihenfolge wichtig: core zuerst, app zuletzt (startet die Firebase-Listener) -->
-    <script src="js/core.js?v=8"></script>
-    <script src="js/news.js?v=8"></script>
-    <script src="js/personen.js?v=8"></script>
-    <script src="js/chronik.js?v=8"></script>
-    <script src="js/karte.js?v=8"></script>
-    <script src="js/pinnwand.js?v=8"></script>
-    <script src="js/archiv.js?v=8"></script>
-    <script src="js/system.js?v=8"></script>
-    <script src="js/app.js?v=8"></script>
+    <script src="js/core.js?v=10"></script>
+    <script src="js/news.js?v=10"></script>
+    <script src="js/personen.js?v=10"></script>
+    <script src="js/chronik.js?v=10"></script>
+    <script src="js/karte.js?v=10"></script>
+    <script src="js/pinnwand.js?v=10"></script>
+    <script src="js/archiv.js?v=10"></script>
+    <script src="js/system.js?v=10"></script>
+    <script src="js/app.js?v=10"></script>
 </body>
 </html>
