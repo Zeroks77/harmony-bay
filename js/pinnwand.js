@@ -1,19 +1,26 @@
 // =========================================
 // PINNWAND LOGIK (Echtzeit-Synchronisiert)
+// Optik: Korkwand mit Stecknadeln, Wollfäden zwischen den Nadeln, Polaroids/Karteikarten/Haftnotizen
 // =========================================
 let globalPositions = {};
 let globalLinks = [];
 let globalBoardNotes = []; // Zettel sowie angeheftete Beweismittel/Orte ({type: 'handout'|'pin', refId})
 const NOTE_COLORS = ['#fff59d', '#ffccbc', '#b3e5fc', '#c8e6c9', '#f8bbd0'];
 const LINK_TYPES = {
-    unklar: { label: 'Verbindung / unklar', color: '#cc0000', dash: '5,5', width: 3 },
-    feind: { label: 'Feindschaft', color: '#ff1744', dash: '', width: 4 },
-    verbuendet: { label: 'Verbündet', color: '#43a047', dash: '', width: 3 },
-    familie: { label: 'Familie / Beziehung', color: '#ba68c8', dash: '', width: 3 },
-    verdacht: { label: 'Verdacht', color: '#ffa000', dash: '12,6', width: 3 },
-    geschaeft: { label: 'Geschäftlich', color: '#42a5f5', dash: '2,6', width: 3 }
+    unklar: { label: 'Verbindung / unklar', color: '#c62828', width: 3 },
+    feind: { label: 'Feindschaft', color: '#1b1b1b', width: 4 },
+    verbuendet: { label: 'Verbündet', color: '#2e7d32', width: 3 },
+    familie: { label: 'Familie / Beziehung', color: '#7b1fa2', width: 3 },
+    verdacht: { label: 'Verdacht', color: '#ef6c00', width: 3 },
+    geschaeft: { label: 'Geschäftlich', color: '#1565c0', width: 3 }
 };
+// Farbe der Stecknadel je Kartenart
+const PUSHPIN_COLORS = { npc: '#d32f2f', zettel: '#1e88e5', handout: '#43a047' };
+const STATUS_STAMPS = { 'Verdächtig': 'VERDÄCHTIG', 'Vermisst': 'VERMISST', 'Verstorben': 'VERSTORBEN' };
 const CELL_W = 180, CELL_H = 230, BOARD_MIN_W = 1600, BOARD_MIN_H = 1000, BOARD_PAD = 300;
+// Abstand zwischen Karten, damit Faden-Etiketten dazwischen Platz haben
+const CARD_GAP_X = 60, CARD_GAP_Y = 50;
+const PIN_OFFSET_Y = 12; // Nadel sitzt 12px unter der Oberkante (= Drehpunkt der Karte)
 let selectedNodeId = null; let linkMode = false; let currentDragElement = null; let dragState = null;
 let boardZoom = loadPref('hb-board-zoom', 1); let boardW = BOARD_MIN_W; let boardH = BOARD_MIN_H;
 
@@ -29,22 +36,23 @@ function initPinnwand() {
 function linkType(link) { return LINK_TYPES[link.type] || LINK_TYPES.unklar; }
 function renderLinkLegend() {
     document.getElementById('link-legend').innerHTML = Object.values(LINK_TYPES).map(t =>
-        `<span class="legend-line"><svg width="26" height="8"><line x1="1" y1="4" x2="25" y2="4" stroke="${t.color}" stroke-width="${t.width}" stroke-dasharray="${t.dash}"/></svg>${t.label}</span>`).join('');
+        `<span class="legend-line"><svg width="26" height="8"><line x1="1" y1="4" x2="25" y2="4" stroke="${t.color}" stroke-width="${t.width}" stroke-linecap="round"/></svg>${t.label}</span>`).join('');
 }
 
-// Abstand zwischen Karten, damit Faden-Etiketten dazwischen Platz haben
-const CARD_GAP_X = 60, CARD_GAP_Y = 50;
+// Feste "Zufalls"-Werte pro Karte/Faden, damit alle Spieler dieselbe schiefe Aufhängung sehen
+function hashStr(s) { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) | 0; return Math.abs(h); }
+function tiltFor(id, maxDeg = 3) { return ((hashStr(id) % 61) / 30 - 1) * maxDeg; }
 
 // Belegte Flächen mit der echten Kartengröße (Karten mit Foto/langem Text sind deutlich höher)
 function takenRects() {
     return Object.entries(globalPositions).map(([id, p]) => {
         const el = document.getElementById('note-' + id);
-        return { x: p.x, y: p.y, w: (el && el.offsetWidth) || 130, h: (el && el.offsetHeight) || 200 };
+        return { x: p.x, y: p.y, w: (el && el.offsetWidth) || 140, h: (el && el.offsetHeight) || 200 };
     });
 }
 
 // Sucht die erste freie Stelle, damit neue Karten nicht übereinander landen
-function findFreeSpot(originX = 40, originY = 40, w = 130, h = 200) {
+function findFreeSpot(originX = 40, originY = 40, w = 140, h = 200) {
     const taken = takenRects();
     const vp = document.getElementById('board-viewport');
     const cols = Math.max(4, Math.floor(((vp.clientWidth || 1200) / boardZoom - 40) / CELL_W));
@@ -103,22 +111,22 @@ function renderBoard() {
             note.oncontextmenu = function(e) { e.preventDefault(); if (dragState) dragState.cancelTap = true; handleLinkSelection(node.id, e); }; // Long-Press auf Android löst auch contextmenu aus
             container.appendChild(note);
         }
-        let newHTML, cls;
+        let newHTML, cls, stamp = null, pin = PUSHPIN_COLORS[node.kind];
         note.style.backgroundColor = ''; note.style.borderTopColor = '';
         if (node.kind === 'npc') {
-            const person = node.data;
-            const imageHTML = person.image && person.image.trim() !== '' ? `<img src="${esc(person.image)}" draggable="false">` : '';
-            newHTML = `${imageHTML}<strong>${esc(person.name)}</strong>${person.role ? `<small>${esc(person.role)}</small>` : ''}`;
-            cls = 'board-note ' + (STATUS_CLASS[person.status] || '');
+            const person = node.data; const hasPhoto = person.image && person.image.trim() !== '';
+            newHTML = `${hasPhoto ? `<img src="${esc(person.image)}" draggable="false">` : ''}<strong>${esc(person.name)}</strong>${person.role ? `<small>${esc(person.role)}</small>` : ''}`;
+            cls = 'board-note ' + (hasPhoto ? 'polaroid-note ' : 'index-card ') + (STATUS_CLASS[person.status] || '');
+            stamp = STATUS_STAMPS[person.status] || null;
         } else if (node.kind === 'handout') {
             const h = node.ref;
             const imageHTML = h.image && h.image.trim() !== '' ? `<img src="${esc(h.image)}" draggable="false">` : '';
-            newHTML = `<div class="card-kind">📄 Beweismittel</div>${imageHTML}<strong>${esc(h.title)}</strong>`;
+            newHTML = `<div class="card-kind">Beweismittel</div>${imageHTML}<strong>${esc(h.title)}</strong>`;
             cls = 'board-note handout-note';
         } else if (node.kind === 'pin') {
             const t = pinType(node.ref);
             newHTML = `<div class="card-kind">📍 ${t.label}</div><strong>${esc(node.ref.note)}</strong>`;
-            cls = 'board-note pin-note'; note.style.borderTopColor = t.color;
+            cls = 'board-note pin-note'; note.style.borderTopColor = t.color; pin = t.color;
         } else {
             newHTML = `<div class="zettel-text">${esc(node.data.text)}</div>`;
             cls = 'board-note zettel';
@@ -126,6 +134,9 @@ function renderBoard() {
         }
         if (note.dataset.html !== newHTML) { note.innerHTML = newHTML; note.dataset.html = newHTML; }
         note.className = cls + (note === currentDragElement ? ' dragging' : '') + (selectedNodeId === node.id ? ' selected-for-link' : '');
+        note.style.setProperty('--rot', tiltFor(node.id, node.kind === 'zettel' ? 4 : 3).toFixed(2) + 'deg');
+        note.dataset.pin = pin;
+        if (stamp) note.dataset.stamp = stamp; else delete note.dataset.stamp;
 
         if(currentDragElement !== note) {
             let pos = globalPositions[node.id];
@@ -142,7 +153,7 @@ function renderBoard() {
 function updateBoardSize() {
     const container = document.getElementById('board-container'); const vp = document.getElementById('board-viewport');
     let maxX = 0, maxY = 0;
-    container.querySelectorAll('.board-note').forEach(n => { maxX = Math.max(maxX, parseFloat(n.style.left) + (n.offsetWidth || 130)); maxY = Math.max(maxY, parseFloat(n.style.top) + (n.offsetHeight || 170)); });
+    container.querySelectorAll('.board-note').forEach(n => { maxX = Math.max(maxX, parseFloat(n.style.left) + (n.offsetWidth || 140)); maxY = Math.max(maxY, parseFloat(n.style.top) + (n.offsetHeight || 170)); });
     boardW = Math.ceil(Math.max(BOARD_MIN_W, vp.clientWidth / boardZoom, maxX + BOARD_PAD));
     boardH = Math.ceil(Math.max(BOARD_MIN_H, vp.clientHeight / boardZoom, maxY + BOARD_PAD));
     container.style.width = boardW + 'px'; container.style.height = boardH + 'px'; container.style.transform = `scale(${boardZoom})`;
@@ -168,24 +179,160 @@ function fitBoard() {
     setBoardZoom(Math.min(vp.clientWidth / (maxX - minX + 80), vp.clientHeight / (maxY - minY + 80), 1.2));
     vp.scrollLeft = (minX - 40) * boardZoom; vp.scrollTop = (minY - 40) * boardZoom;
 }
+
+// =========================================
+// AUFRÄUMEN: verbundene Karten gruppieren, Gruppen und lose Karten sinnvoll anordnen
+// =========================================
 function arrangeBoard() {
-    if (!confirm("Alle Karten automatisch im Raster anordnen? Überlappungen werden dabei aufgelöst.")) return;
-    const nodes = Array.from(document.querySelectorAll('#board-container .board-note')).map(el => ({ el, id: el.dataset.id, x: parseFloat(el.style.left) || 0, y: parseFloat(el.style.top) || 0, w: el.offsetWidth, h: el.offsetHeight }));
-    nodes.sort((a, b) => (Math.round(a.y / CELL_H) - Math.round(b.y / CELL_H)) || (a.x - b.x)); // grobe Reihenfolge beibehalten
-    const cols = Math.max(3, Math.min(10, Math.ceil(Math.sqrt(nodes.length * 1.6))));
-    const colW = Math.max(...nodes.map(n => n.w)) + CARD_GAP_X;
-    // Spaltenweise stapeln: jede Karte kommt in die gerade kürzeste Spalte, mit ihrer echten Höhe
-    const colHeights = new Array(cols).fill(40);
+    if (!confirm("Pinnwand neu ordnen? Karten, die per Faden verbunden sind, werden zusammen gruppiert, lose Karten nach Art sortiert. Die neue Anordnung sehen alle.")) return;
+    const nodes = Array.from(document.querySelectorAll('#board-container .board-note')).map(el => ({ el, id: el.dataset.id, w: el.offsetWidth, h: el.offsetHeight }));
+    if (nodes.length === 0) return;
+    const layout = smartLayout(nodes);
     const updates = {};
-    nodes.forEach(n => {
-        const c = colHeights.indexOf(Math.min(...colHeights));
-        const pos = { x: 40 + c * colW, y: colHeights[c] }; updates[n.id] = pos;
-        colHeights[c] += n.h + CARD_GAP_Y;
-        n.el.style.left = pos.x + 'px'; n.el.style.top = pos.y + 'px';
-    });
+    nodes.forEach(n => { updates[n.id] = layout.get(n.id); });
+    animateBoardTo(nodes, layout);
     db.ref('positions').update(updates);
-    updateBoardSize(); drawAllStrings(); fitBoard();
 }
+
+function smartLayout(nodes) {
+    const index = new Map(nodes.map((n, i) => [String(n.id), i]));
+    const adj = nodes.map(() => new Set());
+    globalLinks.forEach(l => { const a = index.get(String(l.start)), b = index.get(String(l.end)); if (a !== undefined && b !== undefined && a !== b) { adj[a].add(b); adj[b].add(a); } });
+    // Zusammenhängende Gruppen (über Fäden erreichbar) finden – größte zuerst
+    const seen = new Array(nodes.length).fill(false); const groups = [];
+    nodes.forEach((_, start) => {
+        if (seen[start] || adj[start].size === 0) return;
+        const list = [start]; seen[start] = true;
+        for (let k = 0; k < list.length; k++) adj[list[k]].forEach(j => { if (!seen[j]) { seen[j] = true; list.push(j); } });
+        groups.push(list);
+    });
+    groups.sort((a, b) => b.length - a.length);
+    const boxes = groups.map(list => forceLayoutBox(list, nodes, adj));
+    // Lose Karten nach Art bündeln: Personen nach Status, dann Zettel, Beweismittel, Orte
+    const info = new Map(getBoardNodes().map(n => [String(n.id), n]));
+    const LOOSE_ORDER = ['npc:Verdächtig', 'npc:Vermisst', 'npc:Kooperativ', 'npc:Unauffällig', 'npc:', 'npc:Verstorben', 'zettel', 'handout', 'pin'];
+    const looseKey = i => { const n = info.get(String(nodes[i].id)); if (!n) return 'zettel'; if (n.kind !== 'npc') return n.kind; const k = 'npc:' + n.data.status; return LOOSE_ORDER.includes(k) ? k : 'npc:'; };
+    const loose = new Map(LOOSE_ORDER.map(k => [k, []]));
+    nodes.forEach((_, i) => { if (adj[i].size === 0) loose.get(looseKey(i)).push(i); });
+    loose.forEach(list => {
+        if (list.length === 0) return;
+        list.sort((a, b) => String(nodeTitle(nodes[a].id)).localeCompare(String(nodeTitle(nodes[b].id))));
+        boxes.push(gridBox(list, nodes));
+    });
+    return packBoxes(boxes, nodes);
+}
+
+// Netz-Layout einer Gruppe (Stress-Layout): Jede Karte bekommt zu jeder anderen einen Zielabstand
+// proportional zur Anzahl Fäden dazwischen – direkt Verbundene hängen nebeneinander, das Netz bleibt kompakt
+function forceLayoutBox(list, nodes, adj) {
+    const n = list.length, L = 230;
+    const local = new Map(list.map((g, k) => [g, k]));
+    // Kürzeste Wege (in Fäden) zwischen allen Karten der Gruppe
+    const D = list.map(src => {
+        const dist = new Array(n).fill(Infinity); dist[local.get(src)] = 0; const queue = [src];
+        for (let k = 0; k < queue.length; k++) adj[queue[k]].forEach(j => { const lj = local.get(j); if (lj !== undefined && dist[lj] === Infinity) { dist[lj] = dist[local.get(queue[k])] + 1; queue.push(j); } });
+        return dist;
+    });
+    // Start: Ringe um die am stärksten vernetzte Karte
+    const hub = local.get(list.reduce((best, g) => adj[g].size > adj[best].size ? g : best, list[0]));
+    const rings = new Map(); D[hub].forEach((d, k) => { if (!rings.has(d)) rings.set(d, []); rings.get(d).push(k); });
+    const px = new Array(n).fill(0), py = new Array(n).fill(0);
+    rings.forEach((ring, d) => ring.forEach((k, idx) => { const ang = (idx / ring.length) * Math.PI * 2 + d * 0.7; px[k] = Math.cos(ang) * d * L; py[k] = Math.sin(ang) * d * L; }));
+    // Stress per stochastischem Gradientenabstieg (feste Reihenfolge, damit alle dasselbe Ergebnis sehen)
+    const pairs = []; for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) pairs.push([i, j]);
+    let seed = 42; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const maxD = Math.max(1, ...D.flat().filter(Number.isFinite));
+    const etaMax = (maxD * L) ** 2, etaMin = 0.01 * L * L, ROUNDS = 40;
+    for (let t = 0; t < ROUNDS; t++) {
+        const eta = etaMax * Math.pow(etaMin / etaMax, t / (ROUNDS - 1));
+        for (let k = pairs.length - 1; k > 0; k--) { const r = Math.floor(rnd() * (k + 1)); [pairs[k], pairs[r]] = [pairs[r], pairs[k]]; }
+        pairs.forEach(([i, j]) => {
+            const target = D[i][j] * L; const mu = Math.min(1, eta / (target * target));
+            const vx = px[i] - px[j], vy = py[i] - py[j], mag = Math.max(0.01, Math.hypot(vx, vy));
+            const r = mu * (mag - target) / 2 / mag;
+            px[i] -= r * vx; py[i] -= r * vy; px[j] += r * vx; py[j] += r * vy;
+        });
+    }
+    // Netz so drehen, dass seine lange Seite zur Bildschirmform passt (quer am PC, hochkant am Handy)
+    const mx = px.reduce((s, v) => s + v, 0) / n, my = py.reduce((s, v) => s + v, 0) / n;
+    let sxx = 0, syy = 0, sxy = 0; for (let k = 0; k < n; k++) { const ax = px[k] - mx, ay = py[k] - my; sxx += ax * ax; syy += ay * ay; sxy += ax * ay; }
+    const turn = (boardAspect() >= 1 ? 0 : Math.PI / 2) - 0.5 * Math.atan2(2 * sxy, sxx - syy);
+    for (let k = 0; k < n; k++) {
+        const ax = px[k] - mx, ay = py[k] - my;
+        px[k] = ax * Math.cos(turn) - ay * Math.sin(turn); py[k] = (ax * Math.sin(turn) + ay * Math.cos(turn)) * 1.2; // Karten sind höher als breit
+    }
+    const w = list.map(g => nodes[g].w), h = list.map(g => nodes[g].h);
+    resolveOverlaps(px, py, w, h);
+    return toBox(list, px, py, w, h);
+}
+// Schiebt überlappende Karten (echte Größe + Abstand für Etiketten) auseinander
+function resolveOverlaps(px, py, w, h) {
+    for (let pass = 0; pass < 400; pass++) {
+        let moved = false;
+        for (let a = 0; a < px.length; a++) for (let b = a + 1; b < px.length; b++) {
+            const vx = px[a] - px[b], vy = py[a] - py[b];
+            const ox = (w[a] + w[b]) / 2 + CARD_GAP_X - Math.abs(vx), oy = (h[a] + h[b]) / 2 + CARD_GAP_Y - Math.abs(vy);
+            if (ox <= 0 || oy <= 0) continue;
+            moved = true;
+            if (ox < oy) { const s = (vx >= 0 ? 1 : -1) * ox / 2; px[a] += s; px[b] -= s; }
+            else { const s = (vy >= 0 ? 1 : -1) * oy / 2; py[a] += s; py[b] -= s; }
+        }
+        if (!moved) break;
+    }
+}
+function toBox(list, px, py, w, h) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    list.forEach((_, k) => { minX = Math.min(minX, px[k] - w[k] / 2); minY = Math.min(minY, py[k] - h[k] / 2); maxX = Math.max(maxX, px[k] + w[k] / 2); maxY = Math.max(maxY, py[k] + h[k] / 2); });
+    return { w: maxX - minX, h: maxY - minY, items: list.map((g, k) => ({ g, x: px[k] - w[k] / 2 - minX, y: py[k] - h[k] / 2 - minY })) };
+}
+// Lose Karten einer Art im Raster
+function gridBox(list, nodes) {
+    const cols = Math.max(2, Math.ceil(Math.sqrt(list.length)));
+    const colW = Math.max(...list.map(g => nodes[g].w)) + CARD_GAP_X;
+    const items = []; let y = 0;
+    for (let r = 0; r < list.length; r += cols) {
+        const row = list.slice(r, r + cols);
+        row.forEach((g, c) => items.push({ g, x: c * colW, y }));
+        y += Math.max(...row.map(g => nodes[g].h)) + CARD_GAP_Y;
+    }
+    return { w: Math.min(cols, list.length) * colW - CARD_GAP_X, h: y - CARD_GAP_Y, items };
+}
+function boardAspect() { const vp = document.getElementById('board-viewport'); return vp.clientWidth && vp.clientHeight ? vp.clientWidth / vp.clientHeight : 1.6; }
+// Gruppen dicht packen: jede Gruppe an die höchste freie Stelle (dann möglichst links),
+// Gesamtbreite so gewählt, dass die Wand ungefähr die Form des Bildschirms bekommt
+function packBoxes(boxes, nodes) {
+    const GAP = 120;
+    const area = boxes.reduce((s, b) => s + (b.w + GAP) * (b.h + GAP), 0);
+    const maxW = Math.max(...boxes.map(b => b.w), Math.sqrt(area * boardAspect()));
+    const placed = []; const result = new Map();
+    boxes.forEach(box => {
+        const xs = [0, ...placed.map(p => p.x + p.w + GAP)], ys = [0, ...placed.map(p => p.y + p.h + GAP)];
+        let best = null;
+        ys.forEach(y => xs.forEach(x => {
+            if (x > 0 && x + box.w > maxW) return;
+            if (placed.some(p => x < p.x + p.w + GAP && x + box.w + GAP > p.x && y < p.y + p.h + GAP && y + box.h + GAP > p.y)) return;
+            if (!best || y < best.y || (y === best.y && x < best.x)) best = { x, y };
+        }));
+        placed.push({ ...best, w: box.w, h: box.h });
+        box.items.forEach(it => result.set(String(nodes[it.g].id), { x: Math.round(40 + best.x + it.x), y: Math.round(40 + best.y + it.y) }));
+    });
+    return result;
+}
+// Karten gleiten an ihren neuen Platz, Fäden laufen mit
+function animateBoardTo(nodes, layout) {
+    const container = document.getElementById('board-container');
+    container.classList.add('arranging');
+    nodes.forEach(n => { const p = layout.get(n.id); n.el.style.left = p.x + 'px'; n.el.style.top = p.y + 'px'; });
+    updateBoardSize();
+    const end = performance.now() + 750;
+    const frame = now => {
+        drawAllStrings();
+        if (now < end) { requestAnimationFrame(frame); return; }
+        container.classList.remove('arranging'); updateBoardSize(); drawAllStrings(); fitBoard();
+    };
+    requestAnimationFrame(frame);
+}
+
 function toggleBoardFullscreen() {
     const on = document.getElementById('tab-pinnwand').classList.toggle('fullscreen');
     document.getElementById('board-fs-btn').innerText = on ? '✕ Vollbild beenden' : '⛶ Vollbild';
@@ -203,8 +350,9 @@ function setLinkMode(on) {
 // Ziehen per Maus UND Touch (Pointer Events). Kurzes Antippen ohne Bewegung = Menü bzw. Verbinden
 function onNotePointerDown(e) {
     if (e.button !== 0) return;
-    const note = e.currentTarget; const rect = note.getBoundingClientRect();
-    dragState = { note, id: Number(note.dataset.id), startX: e.clientX, startY: e.clientY, offX: (e.clientX - rect.left) / boardZoom, offY: (e.clientY - rect.top) / boardZoom, moved: false, lastSync: 0 };
+    const note = e.currentTarget;
+    const c = document.getElementById('board-container').getBoundingClientRect();
+    dragState = { note, id: Number(note.dataset.id), startX: e.clientX, startY: e.clientY, offX: (e.clientX - c.left) / boardZoom - parseFloat(note.style.left), offY: (e.clientY - c.top) / boardZoom - parseFloat(note.style.top), moved: false, lastSync: 0 };
     note.setPointerCapture(e.pointerId);
 }
 function onNotePointerMove(e) {
@@ -223,7 +371,7 @@ function onNotePointerUp(e) {
     if (s.moved) {
         currentDragElement = null; s.note.classList.remove('dragging');
         db.ref('positions/' + s.id).set({ x: parseFloat(s.note.style.left), y: parseFloat(s.note.style.top) });
-        updateBoardSize();
+        updateBoardSize(); drawAllStrings();
     } else if (e.type === 'pointerup' && !s.cancelTap) {
         handleNoteTap(s.id, e);
     }
@@ -316,31 +464,49 @@ function openLinkMenu(link, e) {
     ]);
 }
 
-// Geometrie eines Fadens: leicht durchhängende Kurve zwischen den Kartenmitten, Etikett in der Mitte der Kurve
-function linkGeometry(link) {
+// Position der Stecknadel einer Karte (offsetLeft folgt auch der Gleit-Animation beim Aufräumen)
+function pinAnchor(el) { return { x: el.offsetLeft + el.offsetWidth / 2, y: el.offsetTop + PIN_OFFSET_Y }; }
+function cardRects() { return Array.from(document.querySelectorAll('#board-container .board-note')).map(n => ({ x: n.offsetLeft, y: n.offsetTop, w: n.offsetWidth, h: n.offsetHeight })); }
+// Faden von Nadel zu Nadel, hängt je nach Länge durch. Das Etikett sitzt möglichst mittig,
+// rutscht aber entlang des Fadens an eine Stelle, an der es keine Karte verdeckt
+function linkGeometry(link, rects = cardRects()) {
     const a = document.getElementById('note-' + link.start), b = document.getElementById('note-' + link.end); if (!a || !b) return null;
-    const x1 = parseFloat(a.style.left) + a.offsetWidth / 2, y1 = parseFloat(a.style.top) + a.offsetHeight / 2;
-    const x2 = parseFloat(b.style.left) + b.offsetWidth / 2, y2 = parseFloat(b.style.top) + b.offsetHeight / 2;
-    const sag = Math.min(60, Math.hypot(x2 - x1, y2 - y1) * 0.12); const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2 + sag;
-    return { x1, y1, x2, y2, cx, cy, lx: (x1 + 2 * cx + x2) / 4, ly: (y1 + 2 * cy + y2) / 4 };
+    const p1 = pinAnchor(a), p2 = pinAnchor(b);
+    const sag = Math.min(110, Math.hypot(p2.x - p1.x, p2.y - p1.y) * 0.16) + 8;
+    const cx = (p1.x + p2.x) / 2, cy = (p1.y + p2.y) / 2 + sag;
+    const at = t => ({ x: (1 - t) ** 2 * p1.x + 2 * (1 - t) * t * cx + t * t * p2.x, y: (1 - t) ** 2 * p1.y + 2 * (1 - t) * t * cy + t * t * p2.y });
+    const covers = p => rects.some(r => p.x > r.x - 35 && p.x < r.x + r.w + 35 && p.y > r.y - 12 && p.y < r.y + r.h + 12);
+    const spot = [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74, 0.18, 0.82].map(at).find(p => !covers(p)) || at(0.5);
+    return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, cx, cy, lx: spot.x, ly: spot.y };
 }
 
 function drawAllStrings() {
-    const svg = document.getElementById('strings-svg'); const labelsContainer = document.getElementById('string-labels-container');
-    svg.innerHTML = ''; labelsContainer.innerHTML = '';
+    const svg = document.getElementById('strings-svg'); const labelsContainer = document.getElementById('string-labels-container'); const pins = document.getElementById('board-pins');
+    svg.innerHTML = ''; labelsContainer.innerHTML = ''; pins.innerHTML = '';
+    const rects = cardRects();
     globalLinks.forEach(link => {
-        const g = linkGeometry(link); if (!g) return;
+        const g = linkGeometry(link, rects); if (!g) return;
         const t = linkType(link);
         const active = selectedNodeId !== null && (Number(link.start) === selectedNodeId || Number(link.end) === selectedNodeId);
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', `M${g.x1},${g.y1} Q${g.cx},${g.cy} ${g.x2},${g.y2}`);
-        path.setAttribute('class', 'string-line' + (active ? ' active' : ''));
-        path.style.stroke = t.color; path.style.strokeWidth = t.width + (active ? 2 : 0); path.style.strokeDasharray = t.dash || 'none';
-        svg.appendChild(path);
-        const labelDiv = document.createElement('div'); labelDiv.className = 'string-label'; labelDiv.style.left = g.lx + 'px'; labelDiv.style.top = g.ly + 'px'; labelDiv.style.borderLeftColor = t.color;
+        const d = `M${g.x1},${g.y1} Q${g.cx},${g.cy} ${g.x2},${g.y2}`;
+        // Wollfaden: farbiger Strang mit Schatten + feine helle "Verdrillung" darüber
+        const base = document.createElementNS('http://www.w3.org/2000/svg', 'path'); base.setAttribute('d', d);
+        base.setAttribute('class', 'yarn' + (active ? ' active' : '')); base.style.stroke = t.color; base.style.strokeWidth = t.width + (active ? 1.5 : 0);
+        const twist = document.createElementNS('http://www.w3.org/2000/svg', 'path'); twist.setAttribute('d', d); twist.setAttribute('class', 'yarn-twist');
+        svg.append(base, twist);
+        const labelDiv = document.createElement('div'); labelDiv.className = 'string-label'; labelDiv.style.left = g.lx + 'px'; labelDiv.style.top = g.ly + 'px';
+        labelDiv.style.borderTopColor = t.color; labelDiv.style.setProperty('--rot', tiltFor(link.dbKey, 4).toFixed(1) + 'deg');
         labelDiv.innerText = (link.label && link.label.trim() !== "") ? link.label : "🔗"; labelDiv.title = t.label + " – klicken zum Bearbeiten oder Löschen";
         labelDiv.onclick = e => openLinkMenu(link, e);
         labelDiv.oncontextmenu = e => { e.preventDefault(); openLinkMenu(link, e); };
         labelsContainer.appendChild(labelDiv);
+    });
+    // Stecknadeln liegen über den Fäden – die Fäden sind darum geknotet
+    document.querySelectorAll('#board-container .board-note').forEach(n => {
+        if (n.classList.contains('dragging')) return; // abgenommene Karte hat gerade keine Nadel
+        const a = pinAnchor(n); const p = document.createElement('div'); p.className = 'pushpin';
+        p.style.left = a.x + 'px'; p.style.top = a.y + 'px'; p.style.setProperty('--pin', n.dataset.pin || PUSHPIN_COLORS.npc);
+        pins.appendChild(p);
     });
 }
 function clearStrings() { if(confirm("Alle Fäden löschen?")) { db.ref('links').remove(); } }
@@ -368,42 +534,65 @@ function downloadCanvas(canvas) {
 }
 function renderBoardCanvas(withImages) {
     const notes = Array.from(document.querySelectorAll('#board-container .board-note'));
-    const strings = globalLinks.map(link => ({ link, g: linkGeometry(link) })).filter(s => s.g);
+    const rects = cardRects(); const strings = globalLinks.map(link => ({ link, g: linkGeometry(link, rects) })).filter(s => s.g);
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     notes.forEach(n => { const x = parseFloat(n.style.left), y = parseFloat(n.style.top); minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x + n.offsetWidth); maxY = Math.max(maxY, y + n.offsetHeight); });
     strings.forEach(({ g }) => { minX = Math.min(minX, g.lx - 80); maxX = Math.max(maxX, g.lx + 80); maxY = Math.max(maxY, g.ly + 20); });
-    const pad = 40, w = maxX - minX + 2 * pad, h = maxY - minY + 2 * pad;
+    const pad = 50, w = maxX - minX + 2 * pad, h = maxY - minY + 2 * pad;
     const scale = Math.min(2, 8000 / Math.max(w, h));
     const canvas = document.createElement('canvas'); canvas.width = Math.ceil(w * scale); canvas.height = Math.ceil(h * scale);
     const ctx = canvas.getContext('2d'); ctx.scale(scale, scale); ctx.translate(pad - minX, pad - minY);
-    ctx.fillStyle = '#2a2015'; ctx.fillRect(minX - pad, minY - pad, w, h);
+    // Kork: Grundfarbe + feste Körnung
+    ctx.fillStyle = '#b98b5e'; ctx.fillRect(minX - pad, minY - pad, w, h);
+    let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < w * h / 60; i++) { ctx.fillStyle = rnd() < 0.6 ? 'rgba(90,50,20,0.22)' : 'rgba(235,200,150,0.25)'; ctx.fillRect(minX - pad + rnd() * w, minY - pad + rnd() * h, 1 + rnd() * 2, 1 + rnd() * 2); }
 
+    notes.forEach(n => drawNoteOnCanvas(ctx, n, withImages));
     strings.forEach(({ link, g }) => {
         const t = linkType(link);
-        ctx.save(); ctx.strokeStyle = t.color; ctx.lineWidth = t.width; ctx.setLineDash(t.dash ? t.dash.split(',').map(Number) : []);
-        ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 3; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
+        ctx.save(); ctx.strokeStyle = t.color; ctx.lineWidth = t.width; ctx.lineCap = 'round';
+        ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 3; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 4;
+        ctx.beginPath(); ctx.moveTo(g.x1, g.y1); ctx.quadraticCurveTo(g.cx, g.cy, g.x2, g.y2); ctx.stroke(); ctx.restore();
+        ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
         ctx.beginPath(); ctx.moveTo(g.x1, g.y1); ctx.quadraticCurveTo(g.cx, g.cy, g.x2, g.y2); ctx.stroke(); ctx.restore();
     });
-    notes.forEach(n => drawNoteOnCanvas(ctx, n, withImages));
-    strings.forEach(({ link, g }) => { // Etiketten wie auf der Pinnwand über den Karten
+    notes.forEach(n => drawPushpinOnCanvas(ctx, pinAnchor(n), n.dataset.pin || PUSHPIN_COLORS.npc));
+    strings.forEach(({ link, g }) => { // Etiketten wie auf der Pinnwand ganz oben
         const text = link.label && link.label.trim() !== '' ? link.label : '🔗';
-        ctx.font = '11px "Courier New", monospace'; const tw = Math.min(150, ctx.measureText(text).width);
-        ctx.fillStyle = '#fff9c4'; ctx.fillRect(g.lx - tw / 2 - 7, g.ly - 10, tw + 14, 20);
-        ctx.strokeStyle = '#999'; ctx.lineWidth = 1; ctx.strokeRect(g.lx - tw / 2 - 7, g.ly - 10, tw + 14, 20);
-        ctx.fillStyle = linkType(link).color; ctx.fillRect(g.lx - tw / 2 - 7, g.ly - 10, 4, 20);
-        ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, g.lx + 2, g.ly, 150);
+        ctx.save(); ctx.translate(g.lx, g.ly); ctx.rotate(tiltFor(link.dbKey, 4) * Math.PI / 180);
+        ctx.font = '600 17px Caveat, "Segoe Print", cursive'; const tw = Math.min(150, ctx.measureText(text).width);
+        ctx.shadowColor = 'rgba(30,15,0,0.45)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 3;
+        ctx.fillStyle = '#fbf3dc'; ctx.fillRect(-tw / 2 - 8, -11, tw + 16, 22); ctx.shadowColor = 'transparent';
+        ctx.fillStyle = linkType(link).color; ctx.fillRect(-tw / 2 - 8, -11, tw + 16, 3);
+        ctx.fillStyle = '#2a2a2a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, 0, 1, 150);
+        ctx.restore();
     });
     return canvas;
 }
-// Zeichnet eine Karte anhand ihres tatsächlichen Layouts im DOM nach (Farben, Text, Bilder)
+function drawPushpinOnCanvas(ctx, a, color) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(a.x + 2, a.y + 3); ctx.lineTo(a.x + 7, a.y + 11); ctx.stroke(); // Schatten der Nadel
+    ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 3; ctx.shadowOffsetX = 3; ctx.shadowOffsetY = 4;
+    const grad = ctx.createRadialGradient(a.x - 3, a.y - 3, 1, a.x, a.y, 8); grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.25, color); grad.addColorStop(1, color);
+    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(a.x, a.y, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowColor = 'transparent'; ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.arc(a.x + 1.5, a.y + 1.5, 8, 0.1 * Math.PI, 0.9 * Math.PI); ctx.fill();
+    ctx.restore();
+}
+// Zeichnet eine Karte anhand ihres tatsächlichen Layouts im DOM nach (Farben, Text, Bilder, Neigung, Stempel)
 function drawNoteOnCanvas(ctx, n, withImages) {
     const x = parseFloat(n.style.left), y = parseFloat(n.style.top), w = n.offsetWidth, h = n.offsetHeight; const cs = getComputedStyle(n);
-    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 3; ctx.shadowOffsetY = 3;
+    ctx.save();
+    const rot = parseFloat(n.style.getPropertyValue('--rot')) || 0;
+    ctx.translate(x + w / 2, y + PIN_OFFSET_Y); ctx.rotate(rot * Math.PI / 180); ctx.translate(-(x + w / 2), -(y + PIN_OFFSET_Y));
+    ctx.save(); ctx.shadowColor = 'rgba(30,15,0,0.45)'; ctx.shadowBlur = 12; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 7;
     ctx.fillStyle = cs.backgroundColor; ctx.fillRect(x, y, w, h); ctx.restore();
+    if (n.classList.contains('index-card')) { // Karteikarten-Linien
+        ctx.fillStyle = 'rgba(80,130,200,0.3)'; for (let ly = y + 42; ly < y + h - 4; ly += 19) ctx.fillRect(x, ly, w, 1);
+        ctx.fillStyle = 'rgba(214,64,64,0.6)'; ctx.fillRect(x, y + 24, w, 1);
+    }
     const bt = parseFloat(cs.borderTopWidth); if (bt > 1) { ctx.fillStyle = cs.borderTopColor; ctx.fillRect(x, y, w, bt); }
-    const bl = parseFloat(cs.borderLeftWidth); if (bl > 1) { ctx.strokeStyle = cs.borderLeftColor; ctx.lineWidth = bl; ctx.setLineDash(cs.borderLeftStyle === 'dashed' ? [6, 4] : []); ctx.strokeRect(x + bl / 2, y + bl / 2, w - bl, h - bl); ctx.setLineDash([]); }
-    ctx.fillStyle = 'silver'; ctx.beginPath(); ctx.arc(x + w / 2, y + 6, 3, 0, Math.PI * 2); ctx.fill();
     Array.from(n.children).forEach(child => {
+        if (child.style.display === 'none') return;
         const cx = x + child.offsetLeft, cy = y + child.offsetTop, cw = child.offsetWidth, ch = child.offsetHeight;
         if (child.tagName === 'IMG') {
             if (withImages && child.complete && child.naturalWidth) {
@@ -422,6 +611,16 @@ function drawNoteOnCanvas(ctx, n, withImages) {
             if (ccs.textDecorationLine.includes('line-through')) { const lw = ctx.measureText(line).width, sx = center ? tx - lw / 2 : tx; ctx.fillRect(sx, ty + fontSize * 0.55, lw, 1.5); }
         });
     });
+    if (n.dataset.stamp) { // Status-Stempel
+        const st = getComputedStyle(n, '::after');
+        ctx.save(); ctx.translate(x + w / 2, y + h * 0.45); ctx.rotate(-16 * Math.PI / 180);
+        ctx.font = `bold 15px ${st.fontFamily}`; const tw = ctx.measureText(n.dataset.stamp).width + 14;
+        ctx.globalAlpha = 0.85; ctx.strokeStyle = st.color; ctx.fillStyle = st.color; ctx.lineWidth = 2;
+        ctx.strokeRect(-tw / 2, -13, tw, 26); ctx.strokeRect(-tw / 2 + 3, -10, tw - 6, 20);
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(n.dataset.stamp, 0, 1);
+        ctx.restore();
+    }
+    ctx.restore();
 }
 function wrapCanvasText(ctx, text, maxWidth) {
     const lines = [];

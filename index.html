@@ -11,7 +11,10 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
-    <link rel="stylesheet" href="css/style.css?v=5">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Special+Elite&display=swap">
+    <link rel="stylesheet" href="css/style.css?v=7">
 </head>
 <body>
 
@@ -206,7 +209,7 @@
                 </div>
                 <div id="board-viewport">
                     <div id="board-sizer">
-                        <div id="board-container"><svg id="strings-svg"></svg><div id="string-labels-container"></div></div>
+                        <div id="board-container"><svg id="strings-svg"></svg><div id="board-pins"></div><div id="string-labels-container"></div></div>
                     </div>
                 </div>
             </div>
@@ -252,14 +255,14 @@
     <div id="toast"></div>
 
     <!-- Reihenfolge wichtig: core zuerst, app zuletzt (startet die Firebase-Listener) -->
-    <script src="js/core.js?v=5"></script>
-    <script src="js/news.js?v=5"></script>
-    <script src="js/personen.js?v=5"></script>
-    <script src="js/chronik.js?v=5"></script>
-    <script src="js/karte.js?v=5"></script>
-    <script src="js/pinnwand.js?v=5"></script>
-    <script src="js/archiv.js?v=5"></script>
-    <script src="js/system.js?v=5"></script>
-    <script src="js/app.js?v=5"></script>
+    <script src="js/core.js?v=7"></script>
+    <script src="js/news.js?v=7"></script>
+    <script src="js/personen.js?v=7"></script>
+    <script src="js/chronik.js?v=7"></script>
+    <script src="js/karte.js?v=7"></script>
+    <script src="js/pinnwand.js?v=7"></script>
+    <script src="js/archiv.js?v=7"></script>
+    <script src="js/system.js?v=7"></script>
+    <script src="js/app.js?v=7"></script>
 </body>
 </html>

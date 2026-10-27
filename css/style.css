@@ -173,33 +173,52 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Geo
 .board-hint { color: #888; font-size: 0.8em; margin: 8px 0 0 0; }
 .link-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 0.75em; color: #aaa; }
 .legend-line { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-#board-viewport { flex: 1; min-height: 380px; overflow: auto; position: relative; border: 5px solid #1a140d; background: #1a140d; box-shadow: inset 0 0 20px rgba(0,0,0,0.8); z-index: 5; overscroll-behavior: contain; touch-action: pan-x pan-y; }
+/* Rahmen aus Holz, darin die Korkplatte */
+#board-viewport { flex: 1; min-height: 380px; overflow: auto; position: relative; border: 14px solid #5b3a1e; border-image: linear-gradient(135deg, #7a4f2a, #4a2c14 25%, #8b5a2b 50%, #4a2c14 75%, #6d4423) 1; background: #a87b50; box-shadow: 0 6px 18px rgba(0,0,0,0.6); z-index: 5; overscroll-behavior: contain; touch-action: pan-x pan-y; }
 #board-sizer { position: relative; }
-#board-container { position: absolute; top: 0; left: 0; transform-origin: 0 0; background-color: #2a2015; background-image: url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.15'/%3E%3C/svg%3E"); }
+#board-container { position: absolute; top: 0; left: 0; transform-origin: 0 0; background-color: #b98b5e; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.32 0 0 0 0 0.19 0 0 0 0 0.08 0 0 0 -2.4 1.35'/%3E%3C/filter%3E%3Crect width='260' height='260' filter='url(%23n)'/%3E%3C/svg%3E"), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.35' numOctaves='2' seed='4' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.93 0 0 0 0 0.78 0 0 0 0 0.56 0 0 0 3 -1.55'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23m)'/%3E%3C/svg%3E"); }
 #board-container.link-mode .board-note { cursor: crosshair; }
-.board-note { position: absolute; background: #f4f1ea; color: #111; padding: 14px 10px 10px; width: 130px; box-sizing: border-box; box-shadow: 3px 3px 10px rgba(0,0,0,0.5); cursor: grab; font-family: 'Courier New', Courier, monospace; font-size: 0.9em; text-align: center; border: 1px solid #ccc; background-image: radial-gradient(circle at 50% 6px, silver 3px, transparent 4px); user-select: none; -webkit-user-select: none; touch-action: none; z-index: 20; transition: outline 0.2s, box-shadow 0.2s; }
-.board-note img { width: 100%; height: 100px; object-fit: cover; margin-bottom: 5px; pointer-events: none; border: 1px solid #ddd; filter: grayscale(100%) contrast(1.1) sepia(20%); -webkit-user-drag: none; }
-.board-note strong { display: block; word-break: break-word; hyphens: auto; -webkit-hyphens: auto; }
-.board-note small { display: block; color: #555; margin-top: 3px; word-break: break-word; hyphens: auto; -webkit-hyphens: auto; }
-.board-note.dragging { cursor: grabbing; z-index: 30; box-shadow: 8px 8px 20px rgba(0,0,0,0.7); }
-.board-note.selected-for-link { outline: 3px solid red; }
-.board-note.st-suspect { border: 2px solid #c62828; }
-.board-note.st-missing { border: 2px dashed #ef6c00; }
-.board-note.st-dead strong { text-decoration: line-through; }
-.board-note.st-dead img { opacity: 0.6; }
-.board-note.zettel { background-color: #fff59d; transform: rotate(-1.5deg); min-height: 70px; font-family: 'Comic Sans MS', 'Segoe Print', cursive; text-align: left; }
-.board-note.zettel.dragging { transform: rotate(0deg); }
-.zettel-text { white-space: pre-wrap; word-break: break-word; font-size: 0.95em; line-height: 1.3; }
-.board-note .card-kind { font-size: 0.68em; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 5px; }
-.board-note.handout-note { background-color: #e9e5d3; border: 1px solid #c2b59b; }
-.board-note.handout-note img { height: 80px; filter: sepia(40%); }
-.board-note.pin-note { border-top: 6px solid #e53935; }
-#strings-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15; overflow: visible; }
-/* Farbe, Stärke und Strichelung kommen pro Fadenart aus LINK_TYPES (js/pinnwand.js) */
-.string-line { fill: none; filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.8)); }
-.string-line.active { filter: drop-shadow(0 0 4px #fff); }
-.string-label { position: absolute; background: #fff9c4; color: #111; padding: 3px 6px; border: 1px solid #999; box-shadow: 2px 2px 5px rgba(0,0,0,0.5); font-family: 'Courier New', Courier, monospace; font-size: 0.8em; border-left: 4px solid #cc0000; transform: translate(-50%, -50%); z-index: 25; /* über den Karten (20), damit sie lesbar und klickbar bleiben */ cursor: pointer; user-select: none; transition: background 0.2s; max-width: 160px; text-align: center; }
-.string-label:hover { background: #ffcdd2; color: #900; }
+#board-container.arranging .board-note { transition: left 0.7s cubic-bezier(0.25, 0.8, 0.25, 1), top 0.7s cubic-bezier(0.25, 0.8, 0.25, 1); }
+
+/* Karten hängen leicht schief an ihrer Nadel (Drehpunkt = Nadel) */
+.board-note { --rot: 0deg; position: absolute; width: 140px; box-sizing: border-box; padding: 10px 10px 12px; background-color: #fbfaf4; color: #1d1d1d; font-family: 'Special Elite', 'Courier New', monospace; font-size: 0.85em; text-align: center; box-shadow: 0 1px 1px rgba(0,0,0,0.2), 2px 7px 12px rgba(30,15,0,0.45); transform: rotate(var(--rot)); transform-origin: 50% 12px; cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; z-index: 20; transition: box-shadow 0.2s, transform 0.2s; }
+.board-note img { display: block; width: 100%; height: 115px; object-fit: cover; margin: 6px 0 8px; pointer-events: none; filter: sepia(25%) contrast(1.05) saturate(0.85); -webkit-user-drag: none; }
+.board-note strong { display: block; font-family: 'Caveat', 'Segoe Print', cursive; font-size: 1.5em; font-weight: 700; line-height: 1.05; word-break: break-word; hyphens: auto; -webkit-hyphens: auto; }
+.board-note small { display: block; color: #5a5348; margin-top: 4px; font-size: 0.78em; line-height: 1.25; word-break: break-word; hyphens: auto; -webkit-hyphens: auto; }
+.board-note.dragging { cursor: grabbing; z-index: 30; transform: rotate(0deg) scale(1.05); box-shadow: 0 2px 3px rgba(0,0,0,0.2), 12px 22px 26px rgba(30,15,0,0.5); }
+.board-note.selected-for-link { box-shadow: 0 0 0 3px #e53935, 0 0 22px 6px rgba(229,57,53,0.75); }
+/* Polaroid (Person mit Foto) */
+.board-note.polaroid-note { padding-bottom: 16px; }
+/* Karteikarte (Person ohne Foto) */
+.board-note.index-card { padding-top: 30px; min-height: 110px; background-color: #fdfcf7; background-image: linear-gradient(rgba(214,64,64,0.6), rgba(214,64,64,0.6)), repeating-linear-gradient(to bottom, transparent 0 18px, rgba(80,130,200,0.3) 18px 19px); background-size: 100% 1px, 100% 100%; background-position: 0 24px, 0 24px; background-repeat: no-repeat, repeat; }
+/* Status als Stempel */
+.board-note[data-stamp]::after { content: attr(data-stamp); position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%) rotate(-16deg); padding: 1px 6px; border: 4px double currentColor; border-radius: 3px; color: rgba(190, 20, 20, 0.85); font-family: 'Special Elite', 'Courier New', monospace; font-size: 1.05em; font-weight: bold; letter-spacing: 2px; white-space: nowrap; pointer-events: none; mix-blend-mode: multiply; }
+.board-note[data-stamp="VERMISST"]::after { color: rgba(25, 70, 160, 0.85); }
+.board-note[data-stamp="VERSTORBEN"]::after { color: rgba(25, 25, 25, 0.85); }
+.board-note.st-dead img { filter: grayscale(100%) contrast(1.1); }
+/* Haftnotiz */
+.board-note.zettel { width: 150px; min-height: 120px; padding: 28px 12px 14px; font-family: 'Caveat', 'Segoe Print', cursive; font-size: 1.35em; line-height: 1.12; background-image: linear-gradient(to bottom, rgba(0,0,0,0.06), transparent 22%); box-shadow: 0 1px 1px rgba(0,0,0,0.15), 3px 12px 12px -6px rgba(30,15,0,0.6); }
+.zettel-text { white-space: pre-wrap; word-break: break-word; }
+.board-note .card-kind { font-family: 'Special Elite', 'Courier New', monospace; font-size: 0.66em; text-transform: uppercase; letter-spacing: 1.5px; color: #7a6a50; margin: 8px 0 2px; }
+/* Beweismittel: vergilbtes Papier mit Flecken */
+.board-note.handout-note { width: 150px; background-color: #ede3c8; background-image: radial-gradient(ellipse at 85% 15%, rgba(140,90,40,0.18), transparent 45%), radial-gradient(ellipse at 15% 85%, rgba(140,90,40,0.22), transparent 40%); }
+.board-note.handout-note img { height: 90px; filter: sepia(55%) contrast(1.05); }
+/* Ort vom Lageplan: Karteikarte mit farbigem Reiter */
+.board-note.pin-note { background-color: #f4ecd6; border-top: 8px solid #e53935; }
+
+/* Wollfäden liegen über den Karten und sind um die Nadeln geknotet */
+#strings-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 22; overflow: visible; }
+/* Farbe und Stärke kommen pro Fadenart aus LINK_TYPES (js/pinnwand.js) */
+.yarn { fill: none; stroke-linecap: round; filter: drop-shadow(2px 5px 2px rgba(20,10,0,0.45)); }
+.yarn.active { filter: drop-shadow(0 0 5px #fff) drop-shadow(2px 5px 2px rgba(20,10,0,0.45)); }
+.yarn-twist { fill: none; stroke: rgba(255,255,255,0.3); stroke-width: 1; stroke-dasharray: 2 3; stroke-linecap: round; }
+/* Stecknadeln mit glänzendem Kopf und Schatten der Nadel */
+#board-pins { position: absolute; inset: 0; pointer-events: none; z-index: 23; }
+.pushpin { --pin: #d32f2f; position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: radial-gradient(circle at 33% 30%, rgba(255,255,255,0.95) 0 1.5px, rgba(255,255,255,0.35) 3px, transparent 5px), radial-gradient(circle at 45% 40%, transparent 35%, rgba(0,0,0,0.38) 100%), var(--pin); box-shadow: 2px 4px 3px rgba(20,10,0,0.45); }
+.pushpin::after { content: ''; position: absolute; left: 10px; top: 12px; width: 2px; height: 9px; border-radius: 1px; background: linear-gradient(rgba(20,10,0,0.4), transparent); transform: rotate(-38deg); transform-origin: top; }
+/* Faden-Etiketten als Papierschildchen mit farbigem Klebestreifen; über den Karten, damit sie lesbar und klickbar bleiben */
+.string-label { --rot: 0deg; position: absolute; background: #fbf3dc; color: #2a2a2a; padding: 1px 9px 2px; border-top: 3px solid #c62828; box-shadow: 1px 3px 5px rgba(30,15,0,0.45); font-family: 'Caveat', 'Segoe Print', cursive; font-size: 1.1em; font-weight: 600; line-height: 1.15; transform: translate(-50%, -50%) rotate(var(--rot)); z-index: 25; cursor: pointer; user-select: none; transition: background 0.2s; max-width: 160px; text-align: center; }
+.string-label:hover { background: #ffe3e3; }
 
 /* Handouts */
 #handout-list, #news-backend-list { display: flex; flex-direction: column; gap: 20px; position: relative; z-index: 10; }
@@ -262,7 +281,7 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Geo
     .board-actions .tool-btn, .map-toolbar .tool-btn, .legend-chip { font-size: 0.72rem; padding: 7px 8px; }
     .board-toolbar h2, #tab-karte h2 { margin: 0 0 8px 0; }
     #map-viewport { min-height: 55vh; }
-    #board-viewport { min-height: 60vh; border-width: 3px; }
+    #board-viewport { min-height: 60vh; border-width: 8px; }
     .tool-btn { padding: 8px 10px; }
     .close-lightbox { right: 20px; }
 }
